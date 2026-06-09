@@ -1,0 +1,36 @@
+{
+  "manifest_version": 2,
+  "name": "BOOTH New Product Discord Notifier",
+  "description": "Notify Discord when new BOOTH products appear for configured tags.",
+  "version": "0.1.0",
+  "permissions": [
+    "alarms",
+    "notifications",
+    "storage",
+    "https://booth.pm/*",
+    "https://discord.com/api/webhooks/*"
+  ],
+  "background": {
+    "scripts": [
+      "src/background.js"
+    ],
+    "persistent": false
+  },
+  "icons": {
+    "128": "icons/notification-128.png"
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  },
+  "browser_action": {
+    "default_title": "BOOTH Notifier",
+    "default_popup": "src/popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "booth-new-product-discord-notifier@moyu1254.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

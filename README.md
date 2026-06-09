@@ -14,11 +14,25 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 
 ## Install for Development
 
+### Chrome / Edge / Brave / Vivaldi
+
 1. Chrome または Edge で `chrome://extensions` を開く
 2. Developer mode を有効にする
 3. Load unpacked を選択する
 4. このリポジトリのフォルダを選択する
 5. 拡張機能の Options で Discord Webhook URL と BOOTH タグを設定する
+
+### Firefox
+
+Firefox は Chrome と background の仕組みが違うため、別manifestでビルドします。
+
+```powershell
+./scripts/build-firefox.ps1
+```
+
+その後、Firefox で `about:debugging#/runtime/this-firefox` を開き、`Load Temporary Add-on...` から `dist/firefox/manifest.json` を選択してください。
+
+Chrome系ブラウザはルートの `manifest.json` を使います。Firefoxは `manifests/firefox.json` を使うため、Chrome版を壊さないように分離しています。
 
 ## Settings
 
@@ -33,12 +47,21 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 
 ## Browser Behavior
 
-この拡張機能は Manifest V3 の service worker と `chrome.alarms` を使います。
+### Chrome系
+
+Chrome / Edge / Brave / Vivaldi では、ルートの `manifest.json` を使います。
+Manifest V3 の service worker、`chrome.alarms`、`chrome.offscreen` を使います。
 
 - ブラウザ起動時に `chrome.runtime.onStartup` でチェックします。
 - インストールまたは更新時に `chrome.runtime.onInstalled` でチェックします。
 - ブラウザが起動している間は `chrome.alarms` で定期チェックします。
 - ブラウザが閉じている間や PC がスリープしている間は実行されません。
+
+### Firefox
+
+Firefox では `dist/firefox/manifest.json` を使います。
+Firefox は `background.service_worker` と `chrome.offscreen` に依存しない構成に分けています。
+HTML解析は Firefox の background script 上の `DOMParser` で行います。
 
 ## Permissions
 

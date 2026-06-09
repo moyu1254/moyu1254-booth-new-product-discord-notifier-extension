@@ -1,4 +1,5 @@
 const ALARM_NAME = "booth-product-check";
+const ext = globalThis.browser || chrome;
 const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
@@ -8,33 +9,33 @@ const DEFAULT_SETTINGS = {
   notifyBrowser: true,
   notifyDiscord: true
 };
-const NOTIFICATION_ICON_URL = chrome.runtime.getURL("icons/notification-128.png");
+const NOTIFICATION_ICON_URL = ext.runtime.getURL("icons/notification-128.png");
 
-chrome.runtime.onInstalled.addListener(() => {
+ext.runtime.onInstalled.addListener(() => {
   scheduleChecks();
   runCheck({ reason: "installed" });
 });
 
-chrome.runtime.onStartup.addListener(() => {
+ext.runtime.onStartup.addListener(() => {
   scheduleChecks();
   runCheck({ reason: "startup" });
 });
 
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-  const { notificationLinks } = await chrome.storage.local.get("notificationLinks");
+ext.notifications.onClicked.addListener(async (notificationId) => {
+  const { notificationLinks } = await ext.storage.local.get("notificationLinks");
   const url = notificationLinks?.[notificationId];
   if (url) {
-    await chrome.tabs.create({ url });
+    await ext.tabs.create({ url });
   }
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+ext.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
     runCheck({ reason: "alarm" });
   }
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "CLEAR_BADGE") {
     clearBadge()
       .then(() => sendResponse({ ok: true }))
@@ -53,7 +54,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-chrome.storage.onChanged.addListener((changes, areaName) => {
+ext.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync" && changes.settings) {
     scheduleChecks();
   }
@@ -63,8 +64,8 @@ async function scheduleChecks() {
   const settings = await getSettings();
   const periodInMinutes = Math.max(1, Number(settings.checkIntervalMinutes) || 30);
 
-  await chrome.alarms.clear(ALARM_NAME);
-  await chrome.alarms.create(ALARM_NAME, { periodInMinutes });
+  await ext.alarms.clear(ALARM_NAME);
+  await ext.alarms.create(ALARM_NAME, { periodInMinutes });
 }
 
 async function runCheck({ reason } = {}) {
@@ -221,7 +222,7 @@ async function runCheck({ reason } = {}) {
     }
   }
 
-  await chrome.storage.local.set({ seenProductIds: unique(seenIds) });
+  await ext.storage.local.set({ seenProductIds: unique(seenIds) });
   await saveRecentProducts(newlySeenProducts);
   await updateBadge();
   await setLastRun({
@@ -239,7 +240,7 @@ async function runCheck({ reason } = {}) {
 }
 
 async function getSettings() {
-  const { settings } = await chrome.storage.sync.get("settings");
+  const { settings } = await ext.storage.sync.get("settings");
   return {
     ...DEFAULT_SETTINGS,
     ...(settings || {}),
@@ -248,12 +249,12 @@ async function getSettings() {
 }
 
 async function getSeenProductIds() {
-  const { seenProductIds } = await chrome.storage.local.get("seenProductIds");
+  const { seenProductIds } = await ext.storage.local.get("seenProductIds");
   return Array.isArray(seenProductIds) ? seenProductIds : [];
 }
 
 async function setLastRun(lastRun) {
-  await chrome.storage.local.set({ lastRun });
+  await ext.storage.local.set({ lastRun });
 }
 
 async function saveRecentProducts(products) {
@@ -261,7 +262,7 @@ async function saveRecentProducts(products) {
     return;
   }
 
-  const { recentProducts = [], unreadCount = 0 } = await chrome.storage.local.get([
+  const { recentProducts = [], unreadCount = 0 } = await ext.storage.local.get([
     "recentProducts",
     "unreadCount"
   ]);
@@ -270,7 +271,7 @@ async function saveRecentProducts(products) {
     100
   );
 
-  await chrome.storage.local.set({
+  await ext.storage.local.set({
     recentProducts: merged,
     unreadCount: unreadCount + products.length
   });
@@ -354,7 +355,7 @@ async function sendBrowserNotification(product, tag) {
   }
 
   try {
-    await chrome.notifications.create(notificationId, {
+    await ext.notifications.create(notificationId, {
       type: "basic",
       iconUrl: NOTIFICATION_ICON_URL,
       title: product.title,
@@ -391,7 +392,7 @@ async function sendBrowserSummaryNotification(items) {
       : `${tagSummary}${Object.keys(tagCounts).length > 4 ? " ..." : ""}`;
 
   try {
-    await chrome.notifications.create(notificationId, {
+    await ext.notifications.create(notificationId, {
       type: "basic",
       iconUrl: NOTIFICATION_ICON_URL,
       title: `BOOTH新商品 ${items.length}件`,
@@ -407,15 +408,15 @@ async function sendBrowserSummaryNotification(items) {
 
 async function getBrowserNotificationPermissionLevel() {
   try {
-    return await chrome.notifications.getPermissionLevel();
+    return await ext.notifications.getPermissionLevel();
   } catch (error) {
     return "unknown";
   }
 }
 
 async function saveNotificationLink(notificationId, url) {
-  const { notificationLinks } = await chrome.storage.local.get("notificationLinks");
-  await chrome.storage.local.set({
+  const { notificationLinks } = await ext.storage.local.get("notificationLinks");
+  await ext.storage.local.set({
     notificationLinks: {
       ...(notificationLinks || {}),
       [notificationId]: url
@@ -424,16 +425,16 @@ async function saveNotificationLink(notificationId, url) {
 }
 
 async function updateBadge() {
-  const { unreadCount = 0 } = await chrome.storage.local.get("unreadCount");
-  await chrome.action.setBadgeBackgroundColor({ color: "#e75493" });
-  await chrome.action.setBadgeText({
+  const { unreadCount = 0 } = await ext.storage.local.get("unreadCount");
+  await getActionApi().setBadgeBackgroundColor({ color: "#e75493" });
+  await getActionApi().setBadgeText({
     text: unreadCount > 0 ? String(Math.min(unreadCount, 99)) : ""
   });
 }
 
 async function clearBadge() {
-  await chrome.storage.local.set({ unreadCount: 0 });
-  await chrome.action.setBadgeText({ text: "" });
+  await ext.storage.local.set({ unreadCount: 0 });
+  await getActionApi().setBadgeText({ text: "" });
 }
 
 function cleanText(text) {
@@ -453,8 +454,12 @@ function normalizeImageUrl(url) {
 }
 
 async function parseProductsInOffscreenDocument(html) {
+  if (typeof DOMParser !== "undefined") {
+    return parseProductsFromHtml(html);
+  }
+
   await ensureOffscreenDocument();
-  const response = await chrome.runtime.sendMessage({
+  const response = await ext.runtime.sendMessage({
     type: "PARSE_PRODUCTS",
     html
   });
@@ -467,8 +472,12 @@ async function parseProductsInOffscreenDocument(html) {
 }
 
 async function ensureOffscreenDocument() {
-  const offscreenUrl = chrome.runtime.getURL("src/offscreen.html");
-  const contexts = await chrome.runtime.getContexts({
+  if (!ext.offscreen || !ext.runtime.getContexts) {
+    throw new Error("DOMParser and offscreen documents are not available in this browser.");
+  }
+
+  const offscreenUrl = ext.runtime.getURL("src/offscreen.html");
+  const contexts = await ext.runtime.getContexts({
     contextTypes: ["OFFSCREEN_DOCUMENT"],
     documentUrls: [offscreenUrl]
   });
@@ -477,11 +486,55 @@ async function ensureOffscreenDocument() {
     return;
   }
 
-  await chrome.offscreen.createDocument({
+  await ext.offscreen.createDocument({
     url: "src/offscreen.html",
     reasons: ["DOM_PARSER"],
     justification: "Parse BOOTH search result HTML in a DOM-capable extension context."
   });
+}
+
+function parseProductsFromHtml(html) {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const cards = document.querySelectorAll("li[class*='item-card'], div[class*='item-card']");
+
+  return Array.from(cards)
+    .map(parseProductCard)
+    .filter(Boolean);
+}
+
+function parseProductCard(card) {
+  const link =
+    card.querySelector("a[class*='item-card__title'][href]") ||
+    card.querySelector("a[class*='pc--item-card__title'][href]") ||
+    card.querySelector("a[href*='/items/']");
+
+  if (!link) {
+    return null;
+  }
+
+  const itemMatch = link.href.match(/\/items\/(\d+)/);
+  if (!itemMatch) {
+    return null;
+  }
+
+  const image = card.querySelector("img");
+  const price = card.querySelector("[class*='price']");
+  const id = itemMatch[1];
+  const title = cleanText(link.textContent) || cleanText(image?.alt) || "無題の商品";
+  const imageUrl = normalizeImageUrl(
+    image?.getAttribute("src") ||
+      image?.getAttribute("data-src") ||
+      image?.getAttribute("data-original") ||
+      ""
+  );
+
+  return {
+    id,
+    title,
+    url: `https://booth.pm/ja/items/${id}`,
+    price: cleanText(price?.textContent) || "価格不明",
+    imageUrl
+  };
 }
 
 function unique(values) {
@@ -494,6 +547,10 @@ function countBy(values, getKey) {
     counts[key] = (counts[key] || 0) + 1;
     return counts;
   }, {});
+}
+
+function getActionApi() {
+  return ext.action || ext.browserAction;
 }
 
 function sleep(ms) {

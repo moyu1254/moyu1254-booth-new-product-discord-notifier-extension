@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
   notifyBrowser: true,
   notifyDiscord: true
 };
+const ext = globalThis.browser || chrome;
 
 const form = document.querySelector("#settings-form");
 const webhookUrlInput = document.querySelector("#discord-webhook-url");
@@ -27,8 +28,8 @@ runNowButton.addEventListener("click", runNow);
 resetSeenButton.addEventListener("click", resetSeenProducts);
 
 async function restoreOptions() {
-  const { settings } = await chrome.storage.sync.get("settings");
-  const { lastRun } = await chrome.storage.local.get("lastRun");
+  const { settings } = await ext.storage.sync.get("settings");
+  const { lastRun } = await ext.storage.local.get("lastRun");
   const currentSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
 
   webhookUrlInput.value = currentSettings.discordWebhookUrl;
@@ -58,7 +59,7 @@ async function saveCurrentOptions() {
     notifyDiscord: notifyDiscordInput.checked
   };
 
-  await chrome.storage.sync.set({ settings });
+  await ext.storage.sync.set({ settings });
   return settings;
 }
 
@@ -73,7 +74,7 @@ function normalizeTags(tags) {
 
 async function runNow() {
   await saveCurrentOptions();
-  const response = await chrome.runtime.sendMessage({ type: "RUN_CHECK_NOW" });
+  const response = await ext.runtime.sendMessage({ type: "RUN_CHECK_NOW" });
   if (response?.ok) {
     await restoreOptions();
     showStatus("実行しました。");
@@ -84,7 +85,7 @@ async function runNow() {
 }
 
 async function resetSeenProducts() {
-  await chrome.storage.local.set({ seenProductIds: [] });
+  await ext.storage.local.set({ seenProductIds: [] });
   showStatus("通知済み履歴をリセットしました。");
 }
 

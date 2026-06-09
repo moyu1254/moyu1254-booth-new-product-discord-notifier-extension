@@ -1,9 +1,10 @@
+const ext = globalThis.browser || chrome;
 const summary = document.querySelector("#summary");
 const recentProducts = document.querySelector("#recent-products");
 const openOptions = document.querySelector("#open-options");
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const { lastRun, recentProducts: products = [] } = await chrome.storage.local.get([
+  const { lastRun, recentProducts: products = [] } = await ext.storage.local.get([
     "lastRun",
     "recentProducts"
   ]);
@@ -16,11 +17,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   renderRecentProducts(products);
-  await chrome.runtime.sendMessage({ type: "CLEAR_BADGE" });
+  await ext.runtime.sendMessage({ type: "CLEAR_BADGE" });
 });
 
 openOptions.addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
+  ext.runtime.openOptionsPage();
 });
 
 function renderRecentProducts(products) {
