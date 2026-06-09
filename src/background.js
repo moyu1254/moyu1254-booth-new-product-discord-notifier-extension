@@ -7,11 +7,7 @@ const DEFAULT_SETTINGS = {
   notifyBrowser: true,
   notifyDiscord: true
 };
-const NOTIFICATION_ICON_URL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=".replace(
-    /\s+/g,
-    ""
-  );
+const NOTIFICATION_ICON_URL = chrome.runtime.getURL("icons/notification-128.png");
 
 chrome.runtime.onInstalled.addListener(() => {
   scheduleChecks();
@@ -89,6 +85,7 @@ async function runCheck({ reason } = {}) {
   const seenIds = await getSeenProductIds();
   let notifiedCount = 0;
   const errors = [];
+  const browserNotificationErrors = [];
   const tagResults = [];
   const summary = emptySummary();
 
@@ -128,7 +125,7 @@ async function runCheck({ reason } = {}) {
           : false;
         const browserNotified = settings.notifyBrowser
           ? await sendBrowserNotification(product, tag)
-          : false;
+          : { ok: false, message: "" };
 
         if (discordNotified) {
           tagResult.discordNotifiedCount += 1;
@@ -140,17 +137,20 @@ async function runCheck({ reason } = {}) {
           summary.discordFailedCount += 1;
         }
 
-        if (browserNotified) {
+        if (browserNotified.ok) {
           tagResult.browserNotifiedCount += 1;
           summary.browserNotifiedCount += 1;
         }
 
-        if (settings.notifyBrowser && !browserNotified) {
+        if (settings.notifyBrowser && !browserNotified.ok) {
           tagResult.browserFailedCount += 1;
           summary.browserFailedCount += 1;
+          if (browserNotified.message) {
+            browserNotificationErrors.push(browserNotified.message);
+          }
         }
 
-        if (discordNotified || browserNotified) {
+        if (discordNotified || browserNotified.ok) {
           seenIds.push(product.id);
           notifiedCount += 1;
           await sleep(1000);
@@ -173,7 +173,7 @@ async function runCheck({ reason } = {}) {
       errors.length > 0 || summary.discordFailedCount > 0 || summary.browserFailedCount > 0
         ? "error"
         : "ok",
-    message: buildRunMessage(errors, summary),
+    message: buildRunMessage(errors, summary, browserNotificationErrors),
     notifiedCount,
     summary,
     tags: tagResults
@@ -277,9 +277,9 @@ async function sendBrowserNotification(product, tag) {
       message: `${product.price} / ${tag}`,
       contextMessage: "BOOTH New Product"
     });
-    return true;
+    return { ok: true, message: "" };
   } catch (error) {
-    return false;
+    return { ok: false, message: error?.message || "Unknown browser notification error." };
   }
 }
 
@@ -359,7 +359,7 @@ function emptySummary() {
   };
 }
 
-function buildRunMessage(errors, summary) {
+function buildRunMessage(errors, summary, browserNotificationErrors = []) {
   const messages = [...errors];
 
   if (summary.discordFailedCount > 0) {
@@ -367,7 +367,9 @@ function buildRunMessage(errors, summary) {
   }
 
   if (summary.browserFailedCount > 0) {
-    messages.push(`${summary.browserFailedCount} browser notification(s) failed.`);
+    const uniqueErrors = unique(browserNotificationErrors).slice(0, 3);
+    const suffix = uniqueErrors.length > 0 ? `: ${uniqueErrors.join(" / ")}` : ".";
+    messages.push(`${summary.browserFailedCount} browser notification(s) failed${suffix}`);
   }
 
   return messages.join("\n");

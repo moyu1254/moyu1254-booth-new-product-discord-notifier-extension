@@ -16,6 +16,9 @@
   "background": {
     "service_worker": "src/background.js"
   },
+  "icons": {
+    "128": "icons/notification-128.png"
+  },
   "options_page": "src/options.html",
   "action": {
     "default_title": "BOOTH Notifier",
