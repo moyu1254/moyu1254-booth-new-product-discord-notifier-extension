@@ -28,6 +28,7 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 | Check Interval Minutes | 定期チェック間隔 |
 | Include adult products | BOOTH 検索に `adult=include` を付ける。BOOTHへログインし、成人向け表示設定を有効にしてください |
 | Notification Destinations | Discord 通知とブラウザ通知の有効/無効 |
+| Browser Notification Mode | 集約通知または商品ごとの通知 |
 
 ## Browser Behavior
 

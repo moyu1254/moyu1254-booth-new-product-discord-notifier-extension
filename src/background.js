@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = {
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
   includeAdult: false,
+  browserNotificationMode: "summary",
   notifyBrowser: true,
   notifyDiscord: true
 };
@@ -17,6 +18,14 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   scheduleChecks();
   runCheck({ reason: "startup" });
+});
+
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  const { notificationLinks } = await chrome.storage.local.get("notificationLinks");
+  const url = notificationLinks?.[notificationId];
+  if (url) {
+    await chrome.tabs.create({ url });
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -86,6 +95,7 @@ async function runCheck({ reason } = {}) {
   let notifiedCount = 0;
   const errors = [];
   const browserNotificationErrors = [];
+  const browserSummaryItems = [];
   const tagResults = [];
   const summary = emptySummary();
 
@@ -129,9 +139,13 @@ async function runCheck({ reason } = {}) {
         const discordNotified = settings.notifyDiscord
           ? await sendDiscordNotification(webhookUrl, product, tag)
           : false;
-        const browserNotified = settings.notifyBrowser
-          ? await sendBrowserNotification(product, tag)
-          : { ok: false, message: "" };
+        let browserNotified = { ok: false, message: "" };
+        if (settings.notifyBrowser && settings.browserNotificationMode === "perProduct") {
+          browserNotified = await sendBrowserNotification(product, tag);
+        } else if (settings.notifyBrowser) {
+          browserSummaryItems.push({ product, tag, tagResult });
+          browserNotified = { ok: true, message: "", pendingSummary: true };
+        }
 
         if (discordNotified) {
           tagResult.discordNotifiedCount += 1;
@@ -143,7 +157,7 @@ async function runCheck({ reason } = {}) {
           summary.discordFailedCount += 1;
         }
 
-        if (browserNotified.ok) {
+        if (browserNotified.ok && !browserNotified.pendingSummary) {
           tagResult.browserNotifiedCount += 1;
           summary.browserNotifiedCount += 1;
         }
@@ -156,7 +170,7 @@ async function runCheck({ reason } = {}) {
           }
         }
 
-        if (discordNotified || browserNotified.ok) {
+        if (discordNotified || (browserNotified.ok && !browserNotified.pendingSummary)) {
           seenIds.push(product.id);
           notifiedCount += 1;
           await sleep(1000);
@@ -169,6 +183,28 @@ async function runCheck({ reason } = {}) {
     }
 
     tagResults.push(tagResult);
+  }
+
+  if (settings.notifyBrowser && settings.browserNotificationMode === "summary") {
+    const browserSummary = await sendBrowserSummaryNotification(browserSummaryItems);
+    if (browserSummary.ok) {
+      for (const item of browserSummaryItems) {
+        item.tagResult.browserNotifiedCount += 1;
+        summary.browserNotifiedCount += 1;
+        if (!seenIds.includes(item.product.id)) {
+          seenIds.push(item.product.id);
+          notifiedCount += 1;
+        }
+      }
+    } else if (browserSummaryItems.length > 0) {
+      summary.browserFailedCount += browserSummaryItems.length;
+      for (const item of browserSummaryItems) {
+        item.tagResult.browserFailedCount += 1;
+      }
+      if (browserSummary.message) {
+        browserNotificationErrors.push(browserSummary.message);
+      }
+    }
   }
 
   await chrome.storage.local.set({ seenProductIds: unique(seenIds) });
@@ -276,6 +312,11 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
 async function sendBrowserNotification(product, tag) {
   const notificationId = `booth-${product.id}-${Date.now()}`;
 
+  const permission = await getBrowserNotificationPermissionLevel();
+  if (permission !== "granted") {
+    return { ok: false, message: `Notification permission is ${permission}.` };
+  }
+
   try {
     await chrome.notifications.create(notificationId, {
       type: "basic",
@@ -284,10 +325,66 @@ async function sendBrowserNotification(product, tag) {
       message: `${product.price} / ${tag}`,
       contextMessage: "BOOTH New Product"
     });
+    await saveNotificationLink(notificationId, product.url);
     return { ok: true, message: "" };
   } catch (error) {
     return { ok: false, message: error?.message || "Unknown browser notification error." };
   }
+}
+
+async function sendBrowserSummaryNotification(items) {
+  if (items.length === 0) {
+    return { ok: true, message: "" };
+  }
+
+  const permission = await getBrowserNotificationPermissionLevel();
+  if (permission !== "granted") {
+    return { ok: false, message: `Notification permission is ${permission}.` };
+  }
+
+  const notificationId = `booth-summary-${Date.now()}`;
+  const tagCounts = countBy(items, (item) => item.tag);
+  const tagSummary = Object.entries(tagCounts)
+    .map(([tag, count]) => `${tag}: ${count}`)
+    .slice(0, 4)
+    .join(" / ");
+  const firstTitle = items[0]?.product?.title || "新商品";
+  const message =
+    items.length === 1
+      ? `${firstTitle} (${items[0].tag})`
+      : `${tagSummary}${Object.keys(tagCounts).length > 4 ? " ..." : ""}`;
+
+  try {
+    await chrome.notifications.create(notificationId, {
+      type: "basic",
+      iconUrl: NOTIFICATION_ICON_URL,
+      title: `BOOTH新商品 ${items.length}件`,
+      message,
+      contextMessage: "BOOTH New Product"
+    });
+    await saveNotificationLink(notificationId, items[0].product.url);
+    return { ok: true, message: "" };
+  } catch (error) {
+    return { ok: false, message: error?.message || "Unknown browser notification error." };
+  }
+}
+
+async function getBrowserNotificationPermissionLevel() {
+  try {
+    return await chrome.notifications.getPermissionLevel();
+  } catch (error) {
+    return "unknown";
+  }
+}
+
+async function saveNotificationLink(notificationId, url) {
+  const { notificationLinks } = await chrome.storage.local.get("notificationLinks");
+  await chrome.storage.local.set({
+    notificationLinks: {
+      ...(notificationLinks || {}),
+      [notificationId]: url
+    }
+  });
 }
 
 function cleanText(text) {
@@ -340,6 +437,14 @@ async function ensureOffscreenDocument() {
 
 function unique(values) {
   return Array.from(new Set(values));
+}
+
+function countBy(values, getKey) {
+  return values.reduce((counts, value) => {
+    const key = getKey(value);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
 }
 
 function sleep(ms) {
