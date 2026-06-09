@@ -9,7 +9,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const checkedAt = new Date(lastRun.checkedAt).toLocaleString();
-  summary.textContent = `${checkedAt}: ${lastRun.status} / ${lastRun.notifiedCount}件通知`;
+  const runSummary = lastRun.summary || {};
+  summary.textContent = `${checkedAt}: ${lastRun.status} / 新規${runSummary.newCount ?? 0}件 / Discord ${runSummary.discordNotifiedCount ?? lastRun.notifiedCount}件 / ブラウザ ${runSummary.browserNotifiedCount ?? 0}件`;
 });
 
 openOptions.addEventListener("click", () => {

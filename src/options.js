@@ -2,7 +2,9 @@ const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
-  includeAdult: true
+  includeAdult: true,
+  notifyBrowser: true,
+  notifyDiscord: true
 };
 
 const form = document.querySelector("#settings-form");
@@ -10,6 +12,8 @@ const webhookUrlInput = document.querySelector("#discord-webhook-url");
 const tagsInput = document.querySelector("#booth-tags");
 const intervalInput = document.querySelector("#check-interval-minutes");
 const includeAdultInput = document.querySelector("#include-adult");
+const notifyDiscordInput = document.querySelector("#notify-discord");
+const notifyBrowserInput = document.querySelector("#notify-browser");
 const runNowButton = document.querySelector("#run-now");
 const resetSeenButton = document.querySelector("#reset-seen");
 const statusOutput = document.querySelector("#status");
@@ -29,6 +33,8 @@ async function restoreOptions() {
   tagsInput.value = currentSettings.boothTags.join("\n");
   intervalInput.value = currentSettings.checkIntervalMinutes;
   includeAdultInput.checked = currentSettings.includeAdult;
+  notifyDiscordInput.checked = currentSettings.notifyDiscord;
+  notifyBrowserInput.checked = currentSettings.notifyBrowser;
   lastRunOutput.textContent = lastRun ? JSON.stringify(lastRun, null, 2) : "No run yet.";
 }
 
@@ -42,7 +48,9 @@ async function saveOptions(event) {
       .map((tag) => tag.trim())
       .filter(Boolean),
     checkIntervalMinutes: Math.max(1, Number(intervalInput.value) || 30),
-    includeAdult: includeAdultInput.checked
+    includeAdult: includeAdultInput.checked,
+    notifyBrowser: notifyBrowserInput.checked,
+    notifyDiscord: notifyDiscordInput.checked
   };
 
   await chrome.storage.sync.set({ settings });

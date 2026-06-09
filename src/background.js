@@ -3,8 +3,15 @@ const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
-  includeAdult: true
+  includeAdult: true,
+  notifyBrowser: true,
+  notifyDiscord: true
 };
+const NOTIFICATION_ICON_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=".replace(
+    /\s+/g,
+    ""
+  );
 
 chrome.runtime.onInstalled.addListener(() => {
   scheduleChecks();
@@ -53,13 +60,28 @@ async function runCheck({ reason } = {}) {
   const webhookUrl = settings.discordWebhookUrl.trim();
   const tags = settings.boothTags.map((tag) => tag.trim()).filter(Boolean);
 
-  if (!webhookUrl || tags.length === 0) {
+  if (tags.length === 0 || (!settings.notifyDiscord && !settings.notifyBrowser)) {
     await setLastRun({
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
-      message: "Webhook URL or BOOTH tags are not configured.",
-      notifiedCount: 0
+      message: "BOOTH tags or notification destinations are not configured.",
+      notifiedCount: 0,
+      summary: emptySummary(),
+      tags: []
+    });
+    return;
+  }
+
+  if (settings.notifyDiscord && !webhookUrl) {
+    await setLastRun({
+      checkedAt: new Date().toISOString(),
+      reason,
+      status: "skipped",
+      message: "Discord notification is enabled, but Webhook URL is not configured.",
+      notifiedCount: 0,
+      summary: emptySummary(),
+      tags: []
     });
     return;
   }
@@ -67,18 +89,61 @@ async function runCheck({ reason } = {}) {
   const seenIds = await getSeenProductIds();
   let notifiedCount = 0;
   const errors = [];
+  const tagResults = [];
+  const summary = emptySummary();
 
   for (const tag of tags) {
+    const tagResult = {
+      tag,
+      fetchedCount: 0,
+      newCount: 0,
+      discordNotifiedCount: 0,
+      discordFailedCount: 0,
+      browserNotifiedCount: 0,
+      browserFailedCount: 0
+    };
+
     try {
       const products = await fetchProductsByTag(tag, settings.includeAdult);
+      tagResult.fetchedCount = products.length;
+      summary.fetchedCount += products.length;
 
       for (const product of products) {
         if (seenIds.includes(product.id)) {
           continue;
         }
 
-        const notified = await sendDiscordNotification(webhookUrl, product, tag);
-        if (notified) {
+        tagResult.newCount += 1;
+        summary.newCount += 1;
+
+        const discordNotified = settings.notifyDiscord
+          ? await sendDiscordNotification(webhookUrl, product, tag)
+          : false;
+        const browserNotified = settings.notifyBrowser
+          ? await sendBrowserNotification(product, tag)
+          : false;
+
+        if (discordNotified) {
+          tagResult.discordNotifiedCount += 1;
+          summary.discordNotifiedCount += 1;
+        }
+
+        if (settings.notifyDiscord && !discordNotified) {
+          tagResult.discordFailedCount += 1;
+          summary.discordFailedCount += 1;
+        }
+
+        if (browserNotified) {
+          tagResult.browserNotifiedCount += 1;
+          summary.browserNotifiedCount += 1;
+        }
+
+        if (settings.notifyBrowser && !browserNotified) {
+          tagResult.browserFailedCount += 1;
+          summary.browserFailedCount += 1;
+        }
+
+        if (discordNotified || browserNotified) {
           seenIds.push(product.id);
           notifiedCount += 1;
           await sleep(1000);
@@ -89,15 +154,22 @@ async function runCheck({ reason } = {}) {
     } catch (error) {
       errors.push(`${tag}: ${error.message}`);
     }
+
+    tagResults.push(tagResult);
   }
 
   await chrome.storage.local.set({ seenProductIds: unique(seenIds) });
   await setLastRun({
     checkedAt: new Date().toISOString(),
     reason,
-    status: errors.length > 0 ? "error" : "ok",
-    message: errors.join("\n"),
-    notifiedCount
+    status:
+      errors.length > 0 || summary.discordFailedCount > 0 || summary.browserFailedCount > 0
+        ? "error"
+        : "ok",
+    message: buildRunMessage(errors, summary),
+    notifiedCount,
+    summary,
+    tags: tagResults
   });
 }
 
@@ -165,7 +237,24 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
     })
   });
 
-  return response.status === 204;
+  return response.ok;
+}
+
+async function sendBrowserNotification(product, tag) {
+  const notificationId = `booth-${product.id}-${Date.now()}`;
+
+  try {
+    await chrome.notifications.create(notificationId, {
+      type: "basic",
+      iconUrl: NOTIFICATION_ICON_URL,
+      title: product.title,
+      message: `${product.price} / ${tag}`,
+      contextMessage: "BOOTH New Product"
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 function cleanText(text) {
@@ -222,4 +311,29 @@ function unique(values) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function emptySummary() {
+  return {
+    fetchedCount: 0,
+    newCount: 0,
+    discordNotifiedCount: 0,
+    discordFailedCount: 0,
+    browserNotifiedCount: 0,
+    browserFailedCount: 0
+  };
+}
+
+function buildRunMessage(errors, summary) {
+  const messages = [...errors];
+
+  if (summary.discordFailedCount > 0) {
+    messages.push(`${summary.discordFailedCount} Discord notification(s) failed.`);
+  }
+
+  if (summary.browserFailedCount > 0) {
+    messages.push(`${summary.browserFailedCount} browser notification(s) failed.`);
+  }
+
+  return messages.join("\n");
 }

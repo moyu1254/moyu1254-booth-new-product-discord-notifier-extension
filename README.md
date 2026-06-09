@@ -8,6 +8,7 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 - ブラウザを開いている間の定期チェック
 - BOOTH タグを複数指定
 - Discord Webhook へ embed 通知
+- ブラウザ通知
 - 通知済み商品 ID をブラウザ内に保存
 
 ## Install for Development
@@ -26,6 +27,7 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 | BOOTH Tags | 監視する BOOTH タグ。1 行に 1 タグ |
 | Check Interval Minutes | 定期チェック間隔 |
 | Include adult products | BOOTH 検索に `adult=include` を付ける |
+| Notification Destinations | Discord 通知とブラウザ通知の有効/無効 |
 
 ## Browser Behavior
 
@@ -42,6 +44,7 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 | --- | --- |
 | `alarms` | 定期チェック |
 | `storage` | 設定と通知済み商品 ID の保存 |
+| `notifications` | ブラウザ通知 |
 | `offscreen` | BOOTH の HTML を DOMParser で解析 |
 | `https://booth.pm/*` | BOOTH 商品検索ページの取得 |
 | `https://discord.com/api/webhooks/*` | Discord Webhook への通知 |
