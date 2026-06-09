@@ -2,9 +2,9 @@ name: Package Extension
 
 on:
   workflow_dispatch:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   package:
@@ -24,8 +24,9 @@ jobs:
           name: booth-extension-packages
           path: dist/packages/*.zip
 
-      - name: Upload release assets
-        if: github.event_name == 'release'
+      - name: Create GitHub Release and upload assets
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/packages/*.zip
+          generate_release_notes: true
