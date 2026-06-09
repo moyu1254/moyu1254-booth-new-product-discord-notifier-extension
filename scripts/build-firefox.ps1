@@ -3,19 +3,24 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = (Resolve-Path (Join-Path $scriptRoot "..")).Path
+$outputPath = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $repoRoot $OutputDir }
+$rootManifestPath = Join-Path $repoRoot "manifest.json"
+$firefoxManifestPath = Join-Path $repoRoot "manifests/firefox.json"
 
-$rootManifest = Get-Content "manifest.json" | ConvertFrom-Json
-$firefoxManifest = Get-Content "manifests/firefox.json" | ConvertFrom-Json
+$rootManifest = Get-Content $rootManifestPath | ConvertFrom-Json
+$firefoxManifest = Get-Content $firefoxManifestPath | ConvertFrom-Json
 $firefoxManifest.version = $rootManifest.version
 
-if (Test-Path $OutputDir) {
-  Remove-Item -LiteralPath $OutputDir -Recurse -Force
+if (Test-Path $outputPath) {
+  Remove-Item -LiteralPath $outputPath -Recurse -Force
 }
 
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-Copy-Item -Recurse -Path "src" -Destination (Join-Path $OutputDir "src")
-Copy-Item -Recurse -Path "icons" -Destination (Join-Path $OutputDir "icons")
-Copy-Item -Path "README.md" -Destination (Join-Path $OutputDir "README.md")
-$firefoxManifest | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $OutputDir "manifest.json")
+New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
+Copy-Item -Recurse -Path (Join-Path $repoRoot "src") -Destination (Join-Path $outputPath "src")
+Copy-Item -Recurse -Path (Join-Path $repoRoot "icons") -Destination (Join-Path $outputPath "icons")
+Copy-Item -Path (Join-Path $repoRoot "README.md") -Destination (Join-Path $outputPath "README.md")
+$firefoxManifest | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $outputPath "manifest.json")
 
-Write-Host "Firefox extension written to $OutputDir"
+Write-Host "Firefox extension written to $outputPath"
