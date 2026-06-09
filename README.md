@@ -26,7 +26,7 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 | Discord Webhook URL | 通知先 Discord Webhook URL |
 | BOOTH Tags | 監視する BOOTH タグ。1 行に 1 タグ |
 | Check Interval Minutes | 定期チェック間隔 |
-| Include adult products | BOOTH 検索に `adult=include` を付ける。未ログイン状態で0件になった場合は通常検索へフォールバックします |
+| Include adult products | BOOTH 検索に `adult=include` を付ける。BOOTHへログインし、成人向け表示設定を有効にしてください |
 | Notification Destinations | Discord 通知とブラウザ通知の有効/無効 |
 
 ## Browser Behavior
@@ -52,3 +52,5 @@ BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知
 ## Notes
 
 BOOTH の HTML 構造が変わると商品カードの解析が失敗する可能性があります。
+
+成人向け商品を通知するには、同じブラウザでBOOTHへログインし、BOOTH側の成人向け表示設定を有効にしてください。成人向け検索が0件だった場合、通常検索へフォールバックし、`Last Run.message` に警告を出します。

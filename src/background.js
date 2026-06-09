@@ -99,18 +99,24 @@ async function runCheck({ reason } = {}) {
       browserNotifiedCount: 0,
       browserFailedCount: 0,
       sourceUrl: "",
-      fallbackFromUrl: ""
+      fallbackFromUrl: "",
+      adultSearchFallback: false
     };
 
     try {
-      const { products, sourceUrl, fallbackFromUrl } = await fetchProductsByTag(
+      const { products, sourceUrl, fallbackFromUrl, adultSearchFallback } = await fetchProductsByTag(
         tag,
         settings.includeAdult
       );
       tagResult.sourceUrl = sourceUrl;
       tagResult.fallbackFromUrl = fallbackFromUrl;
+      tagResult.adultSearchFallback = adultSearchFallback;
       tagResult.fetchedCount = products.length;
       summary.fetchedCount += products.length;
+
+      if (adultSearchFallback) {
+        summary.adultSearchFallbackCount += 1;
+      }
 
       for (const product of products) {
         if (seenIds.includes(product.id)) {
@@ -202,19 +208,20 @@ async function fetchProductsByTag(tag, includeAdult) {
   const primaryResult = await fetchProductsByTagUrl(buildBoothSearchUrl(tag, includeAdult));
 
   if (!includeAdult || primaryResult.products.length > 0) {
-    return primaryResult;
+    return { ...primaryResult, adultSearchFallback: false };
   }
 
   const fallbackResult = await fetchProductsByTagUrl(buildBoothSearchUrl(tag, false));
   return {
     ...fallbackResult,
-    fallbackFromUrl: primaryResult.sourceUrl
+    fallbackFromUrl: primaryResult.sourceUrl,
+    adultSearchFallback: true
   };
 }
 
 async function fetchProductsByTagUrl(sourceUrl) {
   const response = await fetch(sourceUrl, {
-    credentials: "omit"
+    credentials: "include"
   });
 
   if (!response.ok) {
@@ -355,12 +362,19 @@ function emptySummary() {
     discordNotifiedCount: 0,
     discordFailedCount: 0,
     browserNotifiedCount: 0,
-    browserFailedCount: 0
+    browserFailedCount: 0,
+    adultSearchFallbackCount: 0
   };
 }
 
 function buildRunMessage(errors, summary, browserNotificationErrors = []) {
   const messages = [...errors];
+
+  if (summary.adultSearchFallbackCount > 0) {
+    messages.push(
+      `${summary.adultSearchFallbackCount} adult search(es) returned no products and fell back to normal search. Check BOOTH login and adult content settings.`
+    );
+  }
 
   if (summary.discordFailedCount > 0) {
     messages.push(`${summary.discordFailedCount} Discord notification(s) failed.`);
