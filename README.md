@@ -1,6 +1,7 @@
 # BOOTH New Product Discord Notifier Extension
 
 BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知する Chrome / Edge 向け拡張機能です。
+これは [moyu1254/booth-new-product-discord-notifier.git](https://github.com/moyu1254/booth-new-product-discord-notifier.git) をブラウザ拡張に移植したものです。
 
 ## Features
 
