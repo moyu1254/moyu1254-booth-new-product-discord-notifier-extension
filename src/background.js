@@ -4,6 +4,7 @@ if (typeof importScripts === "function") {
 }
 
 const ext = globalThis.browser || chrome;
+const RECENT_PRODUCTS_LIMIT = 100;
 const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
@@ -256,7 +257,8 @@ async function saveRecentProducts(products) {
     "recentProducts",
     "unreadCount"
   ]);
-  const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))];
+  const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))]
+    .slice(0, RECENT_PRODUCTS_LIMIT);
 
   await ext.storage.local.set({
     recentProducts: merged,
