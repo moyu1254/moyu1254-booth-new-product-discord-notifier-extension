@@ -9,12 +9,9 @@ const DEFAULT_SETTINGS = {
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
   includeAdult: false,
-  browserNotificationMode: "summary",
-  notifyBrowser: true,
   notifyDiscord: true,
   skipInitialExistingProducts: true
 };
-const NOTIFICATION_ICON_URL = ext.runtime.getURL("icons/notification-128.png");
 
 ext.runtime.onInstalled.addListener(() => {
   scheduleChecks();
@@ -24,14 +21,6 @@ ext.runtime.onInstalled.addListener(() => {
 ext.runtime.onStartup.addListener(() => {
   scheduleChecks();
   runCheck({ reason: "startup" });
-});
-
-ext.notifications.onClicked.addListener(async (notificationId) => {
-  const { notificationLinks } = await ext.storage.local.get("notificationLinks");
-  const url = notificationLinks?.[notificationId];
-  if (url) {
-    await ext.tabs.create({ url });
-  }
 });
 
 ext.alarms.onAlarm.addListener((alarm) => {
@@ -80,12 +69,12 @@ async function runCheck({ reason } = {}) {
   const { monitorInitialized = false } = await ext.storage.local.get("monitorInitialized");
   const shouldBootstrapOnly = settings.skipInitialExistingProducts && !monitorInitialized;
 
-  if (tags.length === 0 || (!settings.notifyDiscord && !settings.notifyBrowser)) {
+  if (tags.length === 0) {
     await setLastRun({
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
-      message: "BOOTH tags or notification destinations are not configured.",
+      message: "BOOTHタグが設定されていません。",
       notifiedCount: 0,
       summary: emptySummary(),
       tags: []
@@ -98,7 +87,7 @@ async function runCheck({ reason } = {}) {
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
-      message: "Discord notification is enabled, but Webhook URL is not configured.",
+      message: "Discord通知が有効ですが、Webhook URLが設定されていません。",
       notifiedCount: 0,
       summary: emptySummary(),
       tags: []
@@ -111,7 +100,7 @@ async function runCheck({ reason } = {}) {
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
-      message: "Discord Webhook URL must start with https://discord.com/api/webhooks/.",
+      message: "Discord Webhook URL は https://discord.com/api/webhooks/ で始まる必要があります。",
       notifiedCount: 0,
       summary: emptySummary(),
       tags: []
@@ -122,8 +111,6 @@ async function runCheck({ reason } = {}) {
   const seenIds = await getSeenProductIds();
   let notifiedCount = 0;
   const errors = [];
-  const browserNotificationErrors = [];
-  const browserSummaryItems = [];
   const newlySeenProducts = [];
   const tagResults = [];
   const summary = emptySummary();
@@ -135,8 +122,6 @@ async function runCheck({ reason } = {}) {
       newCount: 0,
       discordNotifiedCount: 0,
       discordFailedCount: 0,
-      browserNotifiedCount: 0,
-      browserFailedCount: 0,
       sourceUrl: "",
       fallbackFromUrl: "",
       adultSearchFallback: false,
@@ -181,13 +166,6 @@ async function runCheck({ reason } = {}) {
         const discordNotified = settings.notifyDiscord
           ? await sendDiscordNotification(webhookUrl, product, tag)
           : false;
-        let browserNotified = { ok: false, message: "" };
-        if (settings.notifyBrowser && settings.browserNotificationMode === "perProduct") {
-          browserNotified = await sendBrowserNotification(product, tag);
-        } else if (settings.notifyBrowser) {
-          browserSummaryItems.push({ product, tag, tagResult });
-          browserNotified = { ok: true, message: "", pendingSummary: true };
-        }
 
         if (discordNotified) {
           tagResult.discordNotifiedCount += 1;
@@ -199,26 +177,10 @@ async function runCheck({ reason } = {}) {
           summary.discordFailedCount += 1;
         }
 
-        if (browserNotified.ok && !browserNotified.pendingSummary) {
-          tagResult.browserNotifiedCount += 1;
-          summary.browserNotifiedCount += 1;
-          summary.browserNotificationCount += 1;
-        }
-
-        if (settings.notifyBrowser && !browserNotified.ok) {
-          tagResult.browserFailedCount += 1;
-          summary.browserFailedCount += 1;
-          if (browserNotified.message) {
-            browserNotificationErrors.push(browserNotified.message);
-          }
-        }
-
-        if (discordNotified || (browserNotified.ok && !browserNotified.pendingSummary)) {
-          seenIds.push(product.id);
-          newlySeenProducts.push({ ...product, tag, detectedAt: new Date().toISOString() });
-          notifiedCount += 1;
-          await sleep(1000);
-        }
+        seenIds.push(product.id);
+        newlySeenProducts.push({ ...product, tag, detectedAt: new Date().toISOString() });
+        notifiedCount += 1;
+        await sleep(1000);
       }
 
       await sleep(2000);
@@ -227,36 +189,6 @@ async function runCheck({ reason } = {}) {
     }
 
     tagResults.push(tagResult);
-  }
-
-  if (settings.notifyBrowser && settings.browserNotificationMode === "summary") {
-    const browserSummary = await sendBrowserSummaryNotification(browserSummaryItems);
-    if (browserSummary.ok) {
-      if (browserSummaryItems.length > 0) {
-        summary.browserNotificationCount += 1;
-      }
-      for (const item of browserSummaryItems) {
-        item.tagResult.browserNotifiedCount += 1;
-        summary.browserNotifiedCount += 1;
-        if (!seenIds.includes(item.product.id)) {
-          seenIds.push(item.product.id);
-          newlySeenProducts.push({
-            ...item.product,
-            tag: item.tag,
-            detectedAt: new Date().toISOString()
-          });
-          notifiedCount += 1;
-        }
-      }
-    } else if (browserSummaryItems.length > 0) {
-      summary.browserFailedCount += 1;
-      for (const item of browserSummaryItems) {
-        item.tagResult.browserFailedCount += 1;
-      }
-      if (browserSummary.message) {
-        browserNotificationErrors.push(browserSummary.message);
-      }
-    }
   }
 
   await ext.storage.local.set({ seenProductIds: unique(seenIds) });
@@ -269,10 +201,10 @@ async function runCheck({ reason } = {}) {
     checkedAt: new Date().toISOString(),
     reason,
     status:
-      errors.length > 0 || summary.discordFailedCount > 0 || summary.browserFailedCount > 0
+      errors.length > 0 || summary.discordFailedCount > 0
         ? "error"
         : "ok",
-    message: buildRunMessage(errors, summary, browserNotificationErrors),
+    message: buildRunMessage(errors, summary),
     notifiedCount,
     summary,
     tags: tagResults
@@ -302,7 +234,7 @@ async function removeSyncedSettings() {
   try {
     await ext.storage.sync.remove("settings");
   } catch (error) {
-    console.warn("Failed to remove synced settings.", error);
+    console.warn("同期ストレージの設定削除に失敗しました。", error);
   }
 }
 
@@ -324,10 +256,7 @@ async function saveRecentProducts(products) {
     "recentProducts",
     "unreadCount"
   ]);
-  const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))].slice(
-    0,
-    100
-  );
+  const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))];
 
   await ext.storage.local.set({
     recentProducts: merged,
@@ -356,7 +285,7 @@ async function fetchProductsByTagUrl(sourceUrl) {
   });
 
   if (!response.ok) {
-    throw new Error(`BOOTH responded with ${response.status}`);
+    throw new Error(`BOOTHが ${response.status} を返しました。`);
   }
 
   const html = await response.text();
@@ -378,14 +307,15 @@ function buildBoothSearchUrl(tag, includeAdult) {
 
 async function sendDiscordNotification(webhookUrl, product, tag) {
   const embed = {
-    title: product.title.slice(0, 256),
+    title: `${product.isAdult ? "[成人向け] " : ""}${product.title}`.slice(0, 256),
     url: product.url,
-    color: 0xff6fae,
+    color: product.isAdult ? 0xd63b3b : 0xff6fae,
     fields: [
       { name: "価格", value: product.price.slice(0, 1024), inline: true },
-      { name: "タグ", value: tag.slice(0, 1024), inline: true }
+      { name: "タグ", value: tag.slice(0, 1024), inline: true },
+      { name: "区分", value: product.isAdult ? "成人向け" : "一般向け", inline: true }
     ],
-    footer: { text: "BOOTH Monitor" }
+    footer: { text: "BOOTH新着監視" }
   };
 
   if (product.imageUrl) {
@@ -402,88 +332,6 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
   });
 
   return response.ok;
-}
-
-async function sendBrowserNotification(product, tag) {
-  const notificationId = `booth-${product.id}-${Date.now()}`;
-
-  const permission = await getBrowserNotificationPermissionLevel();
-  if (permission !== "granted") {
-    return { ok: false, message: `Notification permission is ${permission}.` };
-  }
-
-  try {
-    await ext.notifications.create(notificationId, {
-      type: "basic",
-      iconUrl: NOTIFICATION_ICON_URL,
-      title: product.title,
-      message: `${product.price} / ${tag}`,
-      contextMessage: "BOOTH 商品ごと通知"
-    });
-    await saveNotificationLink(notificationId, product.url);
-    return { ok: true, message: "" };
-  } catch (error) {
-    return { ok: false, message: error?.message || "Unknown browser notification error." };
-  }
-}
-
-async function sendBrowserSummaryNotification(items) {
-  if (items.length === 0) {
-    return { ok: true, message: "" };
-  }
-
-  const permission = await getBrowserNotificationPermissionLevel();
-  if (permission !== "granted") {
-    return { ok: false, message: `Notification permission is ${permission}.` };
-  }
-
-  const notificationId = `booth-summary-${Date.now()}`;
-  const tagCounts = countBy(items, (item) => item.tag);
-  const tagSummary = Object.entries(tagCounts)
-    .map(([tag, count]) => `${tag}: ${count}`)
-    .slice(0, 3)
-    .join(" / ");
-  const titlePreview = items
-    .slice(0, 3)
-    .map((item, index) => `${index + 1}. ${item.product.title.slice(0, 32)} / ${item.tag}`)
-    .join(" | ");
-  const remainingCount = items.length - 3;
-  const message =
-    items.length === 1
-      ? `${items[0].product.title} / ${items[0].price} / ${items[0].tag}`
-      : `${titlePreview}${remainingCount > 0 ? ` ... 他${remainingCount}件` : ""}${tagSummary ? `\n${tagSummary}` : ""}`;
-
-  try {
-    await ext.notifications.create(notificationId, {
-      type: "basic",
-      iconUrl: NOTIFICATION_ICON_URL,
-      title: `BOOTH 集約通知 ${items.length}件`,
-      message,
-      contextMessage: "BOOTH 集約通知"
-    });
-    await saveNotificationLink(notificationId, items[0].product.url);
-    return { ok: true, message: "" };
-  } catch (error) {
-    return { ok: false, message: error?.message || "Unknown browser notification error." };
-  }
-}
-
-async function getBrowserNotificationPermissionLevel() {
-  try {
-    return await ext.notifications.getPermissionLevel();
-  } catch (error) {
-    return "unknown";
-  }
-}
-
-async function saveNotificationLink(notificationId, url) {
-  const { notificationLinks } = await ext.storage.local.get("notificationLinks");
-  await ext.storage.local.set({
-    notificationLinks: {
-      ...(notificationLinks || {}),
-      [notificationId]: url
-    }
-  });
 }
 
 async function updateBadge() {
@@ -511,7 +359,7 @@ async function parseProductsInOffscreenDocument(html) {
   });
 
   if (!response?.ok) {
-    throw new Error(response?.message || "Failed to parse BOOTH products.");
+    throw new Error(response?.message || "BOOTH商品の解析に失敗しました。");
   }
 
   return response.products;
@@ -519,7 +367,7 @@ async function parseProductsInOffscreenDocument(html) {
 
 async function ensureOffscreenDocument() {
   if (!ext.offscreen || !ext.runtime.getContexts) {
-    throw new Error("DOMParser and offscreen documents are not available in this browser.");
+    throw new Error("このブラウザではDOMParserまたはoffscreen documentが利用できません。");
   }
 
   const offscreenUrl = ext.runtime.getURL("src/offscreen.html");
@@ -535,20 +383,12 @@ async function ensureOffscreenDocument() {
   await ext.offscreen.createDocument({
     url: "src/offscreen.html",
     reasons: ["DOM_PARSER"],
-    justification: "Parse BOOTH search result HTML in a DOM-capable extension context."
+    justification: "BOOTH検索結果のHTMLを拡張機能内で解析するため。"
   });
 }
 
 function unique(values) {
   return Array.from(new Set(values));
-}
-
-function countBy(values, getKey) {
-  return values.reduce((counts, value) => {
-    const key = getKey(value);
-    counts[key] = (counts[key] || 0) + 1;
-    return counts;
-  }, {});
 }
 
 function getActionApi() {
@@ -585,37 +425,28 @@ function emptySummary() {
     newCount: 0,
     discordNotifiedCount: 0,
     discordFailedCount: 0,
-    browserNotifiedCount: 0,
-    browserNotificationCount: 0,
-    browserFailedCount: 0,
     adultSearchFallbackCount: 0,
     bootstrappedCount: 0
   };
 }
 
-function buildRunMessage(errors, summary, browserNotificationErrors = []) {
+function buildRunMessage(errors, summary) {
   const messages = [...errors];
 
   if (summary.adultSearchFallbackCount > 0) {
     messages.push(
-      `${summary.adultSearchFallbackCount} adult search(es) returned no products and fell back to normal search. Check BOOTH login and adult content settings.`
+      `成人向け検索で結果が0件だったため、通常検索へ ${summary.adultSearchFallbackCount} 件フォールバックしました。BOOTHへのログイン状態と成人向け表示設定を確認してください。`
     );
   }
 
   if (summary.bootstrappedCount > 0) {
     messages.push(
-      `${summary.bootstrappedCount} existing product(s) were marked as seen without notification.`
+      `既存商品 ${summary.bootstrappedCount} 件を通知せずに既読として登録しました。`
     );
   }
 
   if (summary.discordFailedCount > 0) {
-    messages.push(`${summary.discordFailedCount} Discord notification(s) failed.`);
-  }
-
-  if (summary.browserFailedCount > 0) {
-    const uniqueErrors = unique(browserNotificationErrors).slice(0, 3);
-    const suffix = uniqueErrors.length > 0 ? `: ${uniqueErrors.join(" / ")}` : ".";
-    messages.push(`${summary.browserFailedCount} browser notification(s) failed${suffix}`);
+    messages.push(`Discord通知 ${summary.discordFailedCount} 件に失敗しました。`);
   }
 
   return messages.join("\n");

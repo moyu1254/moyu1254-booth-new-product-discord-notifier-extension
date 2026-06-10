@@ -15,6 +15,7 @@ New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 Copy-Item -Recurse -Path (Join-Path $repoRoot "src") -Destination (Join-Path $outputPath "src")
 Copy-Item -Recurse -Path (Join-Path $repoRoot "icons") -Destination (Join-Path $outputPath "icons")
 Copy-Item -Path (Join-Path $repoRoot "README.md") -Destination (Join-Path $outputPath "README.md")
+Copy-Item -Path (Join-Path $repoRoot "LICENSE") -Destination (Join-Path $outputPath "LICENSE")
 Copy-Item -Path (Join-Path $repoRoot "manifest.json") -Destination (Join-Path $outputPath "manifest.json")
 
 Write-Host "Chromium extension written to $outputPath"

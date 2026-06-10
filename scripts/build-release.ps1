@@ -8,7 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..")).Path
 $packagePath = if ([System.IO.Path]::IsPathRooted($PackageDir)) { $PackageDir } else { Join-Path $repoRoot $PackageDir }
 $rootManifestPath = Join-Path $repoRoot "manifest.json"
 
-$rootManifest = Get-Content $rootManifestPath | ConvertFrom-Json
+$rootManifest = Get-Content -LiteralPath $rootManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $version = $rootManifest.version
 
 & (Join-Path $scriptRoot "build-chromium.ps1")

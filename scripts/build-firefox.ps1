@@ -9,8 +9,8 @@ $outputPath = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } els
 $rootManifestPath = Join-Path $repoRoot "manifest.json"
 $firefoxManifestPath = Join-Path $repoRoot "manifests/firefox.json"
 
-$rootManifest = Get-Content $rootManifestPath | ConvertFrom-Json
-$firefoxManifest = Get-Content $firefoxManifestPath | ConvertFrom-Json
+$rootManifest = Get-Content -LiteralPath $rootManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$firefoxManifest = Get-Content -LiteralPath $firefoxManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $firefoxManifest.version = $rootManifest.version
 
 if (Test-Path $outputPath) {
@@ -21,6 +21,7 @@ New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 Copy-Item -Recurse -Path (Join-Path $repoRoot "src") -Destination (Join-Path $outputPath "src")
 Copy-Item -Recurse -Path (Join-Path $repoRoot "icons") -Destination (Join-Path $outputPath "icons")
 Copy-Item -Path (Join-Path $repoRoot "README.md") -Destination (Join-Path $outputPath "README.md")
-$firefoxManifest | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $outputPath "manifest.json")
+Copy-Item -Path (Join-Path $repoRoot "LICENSE") -Destination (Join-Path $outputPath "LICENSE")
+$firefoxManifest | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $outputPath "manifest.json") -Encoding UTF8
 
 Write-Host "Firefox extension written to $outputPath"

@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BOOTH Notifier Settings</title>
+    <title>BOOTH新着通知 設定</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <main class="page">
-      <h1>BOOTH Notifier Settings</h1>
+      <h1>BOOTH新着通知 設定</h1>
 
       <form id="settings-form" class="panel">
         <label>
@@ -17,13 +17,13 @@
         </label>
 
         <label>
-          BOOTH Tags
+          BOOTHタグ
           <textarea id="booth-tags" rows="6" placeholder="VRChat&#10;Unity"></textarea>
           <span class="hint">1行に1タグずつ入力してください。</span>
         </label>
 
         <label>
-          Check Interval Minutes
+          定期チェック間隔（分）
           <input id="check-interval-minutes" type="number" min="1" step="1">
         </label>
 
@@ -39,26 +39,14 @@
         </label>
 
         <fieldset>
-          <legend>Notification Destinations</legend>
+          <legend>Discord通知</legend>
 
           <label class="checkbox">
             <input id="notify-discord" type="checkbox">
             Discord に通知する
           </label>
 
-          <label class="checkbox">
-            <input id="notify-browser" type="checkbox">
-            ブラウザ通知を表示する
-          </label>
-
-          <label>
-            Browser Notification Mode
-            <select id="browser-notification-mode">
-              <option value="summary">集約通知</option>
-              <option value="perProduct">商品ごとに通知</option>
-            </select>
-            <span class="hint">集約通知は1回の巡回を1件の通知にまとめます。商品ごと通知は新商品ごとに1件ずつ出ます。</span>
-          </label>
+          <span class="hint">拡張機能内の新着商品一覧と未読バッジは常に更新されます。</span>
         </fieldset>
 
         <div class="actions">
@@ -69,8 +57,8 @@
       </form>
 
       <section class="panel">
-        <h2>Last Run</h2>
-        <pre id="last-run">No run yet.</pre>
+        <h2>最終実行結果</h2>
+        <pre id="last-run">まだ実行されていません。</pre>
       </section>
 
       <p id="status" role="status"></p>

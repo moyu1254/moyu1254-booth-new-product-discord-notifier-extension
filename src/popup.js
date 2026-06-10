@@ -4,20 +4,13 @@ const recentProducts = document.querySelector("#recent-products");
 const openOptions = document.querySelector("#open-options");
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const [{ lastRun, recentProducts: products = [] }, { settings = {} }] = await Promise.all([
-    ext.storage.local.get(["lastRun", "recentProducts"]),
-    ext.storage.local.get("settings")
-  ]);
+  const { lastRun, recentProducts: products = [] } = await ext.storage.local.get(["lastRun", "recentProducts"]);
   if (!lastRun) {
     summary.textContent = "まだ実行されていません。";
   } else {
     const checkedAt = new Date(lastRun.checkedAt).toLocaleString();
     const runSummary = lastRun.summary || {};
-    const browserMode = settings.browserNotificationMode === "perProduct" ? "商品ごと" : "集約";
-    const browserCount =
-      runSummary.browserNotificationCount ??
-      (browserMode === "集約" ? (runSummary.browserNotifiedCount ? 1 : 0) : runSummary.browserNotifiedCount ?? 0);
-    summary.textContent = `${checkedAt}: ${lastRun.status} / 新規${runSummary.newCount ?? 0}件 / Discord ${runSummary.discordNotifiedCount ?? lastRun.notifiedCount}件 / Browser ${browserCount}件（${browserMode}）`;
+    summary.textContent = `${checkedAt}: ${formatStatus(lastRun.status)} / 新規 ${runSummary.newCount ?? 0} 件 / Discord通知 ${runSummary.discordNotifiedCount ?? 0} 件 / 一覧追加 ${lastRun.notifiedCount ?? 0} 件`;
   }
 
   renderRecentProducts(products);
@@ -42,16 +35,41 @@ function renderRecentProducts(products) {
       link.target = "_blank";
       link.rel = "noreferrer";
 
+      const titleRow = document.createElement("span");
+      titleRow.className = "recent-product-title-row";
+
       const title = document.createElement("span");
       title.className = "recent-product-title";
       title.textContent = product.title;
+
+      titleRow.append(title);
+
+      if (product.isAdult) {
+        const badge = document.createElement("span");
+        badge.className = "recent-product-badge recent-product-badge-adult";
+        badge.textContent = "成人向け";
+        titleRow.append(badge);
+      }
 
       const meta = document.createElement("span");
       meta.className = "recent-product-meta";
       meta.textContent = `${product.price} / ${product.tag}`;
 
-      link.append(title, meta);
+      link.append(titleRow, meta);
       return link;
     })
   );
+}
+
+function formatStatus(status) {
+  switch (status) {
+    case "ok":
+      return "正常";
+    case "error":
+      return "エラー";
+    case "skipped":
+      return "未実行";
+    default:
+      return status || "不明";
+  }
 }

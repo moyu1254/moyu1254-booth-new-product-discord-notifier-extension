@@ -3,8 +3,6 @@ const DEFAULT_SETTINGS = {
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
   includeAdult: false,
-  browserNotificationMode: "summary",
-  notifyBrowser: true,
   notifyDiscord: true,
   skipInitialExistingProducts: true
 };
@@ -16,9 +14,7 @@ const tagsInput = document.querySelector("#booth-tags");
 const intervalInput = document.querySelector("#check-interval-minutes");
 const includeAdultInput = document.querySelector("#include-adult");
 const skipInitialExistingProductsInput = document.querySelector("#skip-initial-existing-products");
-const browserNotificationModeInput = document.querySelector("#browser-notification-mode");
 const notifyDiscordInput = document.querySelector("#notify-discord");
-const notifyBrowserInput = document.querySelector("#notify-browser");
 const runNowButton = document.querySelector("#run-now");
 const resetSeenButton = document.querySelector("#reset-seen");
 const statusOutput = document.querySelector("#status");
@@ -38,10 +34,8 @@ async function restoreOptions() {
   intervalInput.value = currentSettings.checkIntervalMinutes;
   includeAdultInput.checked = currentSettings.includeAdult;
   skipInitialExistingProductsInput.checked = currentSettings.skipInitialExistingProducts;
-  browserNotificationModeInput.value = currentSettings.browserNotificationMode || "summary";
   notifyDiscordInput.checked = currentSettings.notifyDiscord;
-  notifyBrowserInput.checked = currentSettings.notifyBrowser;
-  lastRunOutput.textContent = lastRun ? JSON.stringify(lastRun, null, 2) : "No run yet.";
+  lastRunOutput.textContent = lastRun ? JSON.stringify(lastRun, null, 2) : "まだ実行されていません。";
 }
 
 async function saveOptions(event) {
@@ -63,8 +57,6 @@ async function saveCurrentOptions() {
     checkIntervalMinutes: Math.max(1, Number(intervalInput.value) || 30),
     includeAdult: includeAdultInput.checked,
     skipInitialExistingProducts: skipInitialExistingProductsInput.checked,
-    browserNotificationMode: browserNotificationModeInput.value,
-    notifyBrowser: notifyBrowserInput.checked,
     notifyDiscord: notifyDiscordInput.checked
   };
 
@@ -104,7 +96,7 @@ async function removeSyncedSettings() {
   try {
     await ext.storage.sync.remove("settings");
   } catch (error) {
-    console.warn("Failed to remove synced settings.", error);
+    console.warn("同期ストレージの設定削除に失敗しました。", error);
   }
 }
 
@@ -151,7 +143,12 @@ async function runNow() {
 }
 
 async function resetSeenProducts() {
-  await ext.storage.local.set({ seenProductIds: [], monitorInitialized: false });
+  await ext.storage.local.set({
+    seenProductIds: [],
+    monitorInitialized: false,
+    recentProducts: [],
+    unreadCount: 0
+  });
   showStatus("通知済み履歴をリセットしました。");
 }
 

@@ -1,11 +1,10 @@
 {
   "manifest_version": 2,
   "name": "BOOTH New Product Discord Notifier",
-  "description": "Notify Discord when new BOOTH products appear for configured tags.",
-  "version": "0.1.0",
+  "description": "指定したBOOTHタグの新着商品を拡張機能内一覧とDiscordに通知します。",
+  "version": "0.3.0",
   "permissions": [
     "alarms",
-    "notifications",
     "storage",
     "https://booth.pm/*",
     "https://discord.com/api/webhooks/*"
@@ -25,7 +24,7 @@
     "open_in_tab": true
   },
   "browser_action": {
-    "default_title": "BOOTH Notifier",
+    "default_title": "BOOTH新着通知",
     "default_popup": "src/popup.html"
   },
   "browser_specific_settings": {

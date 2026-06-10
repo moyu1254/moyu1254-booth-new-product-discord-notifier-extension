@@ -32,13 +32,18 @@ function parseProductCard(card) {
       image?.getAttribute("data-original") ||
       ""
   );
+  const badgeTexts = Array.from(
+    card.querySelectorAll("span, div, p, a, li")
+  ).map((element) => cleanText(element.textContent));
+  const isAdult = badgeTexts.some((text) => /(^|[^A-Z])R-18(G)?([^A-Z]|$)|成人向け|18禁/i.test(text));
 
   return {
     id,
     title,
     url: `https://booth.pm/ja/items/${id}`,
     price: cleanText(price?.textContent) || "価格不明",
-    imageUrl
+    imageUrl,
+    isAdult
   };
 }
 

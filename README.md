@@ -1,139 +1,152 @@
 # BOOTH New Product Discord Notifier Extension
 
-BOOTH の指定タグに新商品が追加されたら Discord Webhook に通知する Chrome / Edge 向け拡張機能です。
-これは [moyu1254/booth-new-product-discord-notifier.git](https://github.com/moyu1254/booth-new-product-discord-notifier.git) をブラウザ拡張に移植したものです。
+BOOTH の指定タグに新商品が追加されたとき、拡張機能内の一覧と必要に応じて Discord Webhook に通知するブラウザ拡張です。  
+これは [moyu1254/booth-new-product-discord-notifier.git](https://github.com/moyu1254/booth-new-product-discord-notifier.git) をブラウザ拡張として移植したものです。
 
-## Features
+## できること
 
 - ブラウザ起動時にチェック
 - ブラウザを開いている間の定期チェック
-- BOOTH タグを複数指定
-- Discord Webhook へ embed 通知
-- ブラウザ通知
-- 拡張機能アイコンの未読バッジとポップアップ内の新商品一覧
-- 通知済み商品 ID をブラウザ内に保存
+- BOOTH タグを複数指定して監視
+- 新着商品を拡張機能ポップアップの `新着商品一覧` に追加
+- 拡張機能アイコンに未読件数を表示
+- 必要に応じて Discord Webhook にも通知
+- 成人向け商品を一覧と Discord 上で判別しやすく表示
+- 初回設定時は既存商品を通知せず、次回以降の新商品だけを追跡
 
-## Install from GitHub
+## 仕組み
 
-### Quick Start
+この拡張機能では、新商品が見つかると次の 2 か所に反映されます。
 
-1. GitHub Releases からブラウザに合う ZIP をダウンロードして展開する
-2. ブラウザに拡張機能を読み込む（下記の browser 別手順）
-3. 拡張機能の Options で `Discord Webhook URL` と `BOOTH Tags` を設定する
+- `新着商品一覧`
+  拡張機能のポップアップ内に新着商品を追加します。価格とタグに加えて、成人向け商品には `成人向け` バッジを表示します。
+- `未読バッジ`
+  ポップアップを開くまで、拡張機能アイコンに未読件数を表示します。
 
-### Chromium browsers
+Discord 通知を有効にしている場合は、同じ商品を Discord Webhook にも送信します。成人向け商品は Discord 側でもタイトル接頭辞、区分欄、色で判別しやすくしています。
 
-1. GitHub Releases から `booth-new-product-discord-notifier-extension-chromium-v*.zip` をダウンロードする
-2. ZIP を展開する
-3. Chrome / Edge / Brave / Vivaldi で `chrome://extensions` を開く
-4. Developer mode を有効にする
-5. `Load unpacked` を選択し、展開したフォルダを指定する
-6. 拡張機能の Options で `Discord Webhook URL` と `BOOTH Tags` を設定する
+## 導入方法
 
-### Firefox
+### GitHub Releases から導入する
 
-1. GitHub Releases から `booth-new-product-discord-notifier-extension-firefox-v*.zip` をダウンロードする
-2. ZIP を展開する
-3. Firefox で `about:debugging#/runtime/this-firefox` を開く
-4. `Load Temporary Add-on...` から展開したフォルダの `manifest.json` を選択する
-5. 拡張機能の Options で `Discord Webhook URL` と `BOOTH Tags` を設定する
+1. GitHub Releases から使いたいブラウザ向け ZIP をダウンロードして展開します
+2. ブラウザに展開済みフォルダを読み込みます
+3. 拡張機能の設定画面で `Discord Webhook URL` と `BOOTHタグ` を設定します
 
-## Install for Development
+### Chromium 系ブラウザ
 
-### Chrome / Edge / Brave / Vivaldi
+対応例: Chrome / Edge / Brave / Vivaldi
 
-1. Chrome または Edge で `chrome://extensions` を開く
-2. Developer mode を有効にする
-3. Load unpacked を選択する
-4. このリポジトリのフォルダを選択する
-5. 拡張機能の Options で Discord Webhook URL と BOOTH タグを設定する
+1. GitHub Releases から `booth-new-product-discord-notifier-extension-chromium-v*.zip` をダウンロードします
+2. ZIP を展開します
+3. `chrome://extensions` を開きます
+4. `デベロッパー モード` を有効にします
+5. `パッケージ化されていない拡張機能を読み込む` を選び、展開したフォルダを指定します
 
 ### Firefox
 
-Firefox は Chrome と background の仕組みが違うため、別manifestでビルドします。
+1. GitHub Releases から `booth-new-product-discord-notifier-extension-firefox-v*.zip` をダウンロードします
+2. ZIP を展開します
+3. `about:debugging#/runtime/this-firefox` を開きます
+4. `Load Temporary Add-on...` から展開したフォルダの `manifest.json` を選択します
+
+## 開発用の読み込み
+
+### Chromium 系ブラウザ
+
+1. `chrome://extensions` を開きます
+2. `デベロッパー モード` を有効にします
+3. `パッケージ化されていない拡張機能を読み込む` を選びます
+4. このリポジトリのフォルダを指定します
+
+### Firefox
+
+Firefox 版は別 manifest でビルドします。
 
 ```powershell
 ./scripts/build-firefox.ps1
 ```
 
-その後、Firefox で `about:debugging#/runtime/this-firefox` を開き、`Load Temporary Add-on...` から `dist/firefox/manifest.json` を選択してください。
+ビルド後、`about:debugging#/runtime/this-firefox` を開き、`Load Temporary Add-on...` から `dist/firefox/manifest.json` を選択してください。
 
-Chrome系ブラウザはルートの `manifest.json` を使います。Firefoxは `manifests/firefox.json` を使うため、Chrome版を壊さないように分離しています。
+## 設定項目
 
-## Release
+| 項目 | 説明 |
+| --- | --- |
+| Discord Webhook URL | Discord に通知する場合の Webhook URL |
+| BOOTHタグ | 監視する BOOTH タグ。1 行に 1 タグ |
+| 定期チェック間隔（分） | 定期チェックの実行間隔 |
+| 成人向け商品を検索結果に含める | BOOTH 検索に `adult=include` を付けます |
+| 初回は既存商品を通知せず、次回以降の新商品だけ通知する | 初回登録時の大量通知を避けます |
+| Discord に通知する | Discord Webhook への送信を有効にします |
+
+## 成人向け商品の扱い
+
+- BOOTH 側で成人向け商品の表示が許可されていないと、検索結果に出ない場合があります
+- 同じブラウザで BOOTH にログインし、BOOTH 側の成人向け表示設定を有効にしてください
+- 成人向け検索で結果が 0 件だった場合は通常検索へフォールバックし、最終実行結果にその旨を表示します
+- `新着商品一覧` では成人向け商品に `成人向け` バッジを表示します
+- Discord 通知ではタイトルに `[成人向け]` を付け、区分欄にも `成人向け` を表示します
+
+## 動作仕様
+
+### Chromium 系
+
+- ルートの `manifest.json` を使います
+- `chrome.runtime.onStartup` でブラウザ起動時にチェックします
+- `chrome.runtime.onInstalled` でインストール時または更新時にチェックします
+- ブラウザが起動している間は `chrome.alarms` で定期チェックします
+- ブラウザが閉じている間や PC がスリープしている間は実行されません
+
+### Firefox
+
+- `manifests/firefox.json` を元に Firefox 用パッケージを作成します
+- Firefox では `background.service_worker` と `chrome.offscreen` に依存しない構成に分けています
+- HTML の解析は Firefox の background script 上の `DOMParser` で行います
+
+## リリース手順
 
 リリース用 ZIP は GitHub Actions で自動生成されます。
 
-1. `manifest.json` の `version` を更新する（Firefox 版はビルド時に同期）
-2. 変更をコミットして `git tag vX.Y.Z` を作成し、GitHub へ push する
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-3. `Package Extension` workflow が自動的に起動し、GitHub Release を作成して `dist/packages/*.zip` を assets として添付する
+1. `manifest.json` の `version` を更新します
+2. 必要な変更をコミットします
+3. タグを作成して push します
 
-ローカルで確認する場合は以下を実行します。
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+タグ push 後、`Package Extension` workflow が GitHub Release を作成し、`dist/packages/*.zip` を添付します。
+
+ローカルでビルドだけ確認したい場合は次を実行します。
 
 ```powershell
 ./scripts/build-release.ps1
 ```
 
-## Settings
+## 権限
 
-| Item | Description |
-| --- | --- |
-| Discord Webhook URL | 通知先 Discord Webhook URL |
-| BOOTH Tags | 監視する BOOTH タグ。1 行に 1 タグ |
-| Check Interval Minutes | 定期チェック間隔 |
-| Include adult products | BOOTH 検索に `adult=include` を付ける。BOOTHへログインし、成人向け表示設定を有効にしてください |
-| Skip initial existing products | 初回は既存商品を通知せず、通知済みとして登録 |
-| Notification Destinations | Discord 通知とブラウザ通知の有効/無効 |
-| Browser Notification Mode | 集約通知または商品ごとの通知 |
-
-## Notification Strategy
-
-ブラウザ通知は既定で `集約通知` を使います。理由は、BOOTH の新商品が複数件出たときに OS やブラウザが大量通知を抑制しやすく、1件ごとの通知は見逃しやすいからです。
-
-- `集約通知`: 1回の巡回で新商品が何件あったかを1件の通知にまとめます。通知本文には上位3件のタイトルを並べ、残り件数とタグ別件数も表示します
-- `商品ごとに通知`: 新商品ごとに1件ずつ通知を出します。通知数は増えますが、1件ごとの詳細がそのまま見えます
-
-通常利用では `集約通知` を推奨します。詳細確認は Discord 通知、拡張アイコンのバッジ、ポップアップ内の新商品一覧で補完する前提です。
-
-なお、1件だけ新商品がある場合は `集約通知` と `商品ごとに通知` の見た目がかなり近くなります。違いがはっきり出るのは、同じ巡回で複数件の新商品が見つかったときです。
-
-## Browser Behavior
-
-### Chrome系
-
-Chrome / Edge / Brave / Vivaldi では、ルートの `manifest.json` を使います。
-Manifest V3 の service worker、`chrome.alarms`、`chrome.offscreen` を使います。
-
-- ブラウザ起動時に `chrome.runtime.onStartup` でチェックします。
-- インストールまたは更新時に `chrome.runtime.onInstalled` でチェックします。
-- ブラウザが起動している間は `chrome.alarms` で定期チェックします。
-- ブラウザが閉じている間や PC がスリープしている間は実行されません。
-
-### Firefox
-
-Firefox では `dist/firefox/manifest.json` を使います。
-Firefox は `background.service_worker` と `chrome.offscreen` に依存しない構成に分けています。
-HTML解析は Firefox の background script 上の `DOMParser` で行います。
-
-## Permissions
-
-| Permission | Reason |
+| 権限 | 用途 |
 | --- | --- |
 | `alarms` | 定期チェック |
-| `storage` | 設定、Discord Webhook URL、通知済み商品 ID のローカル保存 |
-| `notifications` | ブラウザ通知 |
-| `offscreen` | BOOTH の HTML を DOMParser で解析 |
+| `storage` | 設定、通知済み商品 ID、新着商品一覧、未読件数の保存 |
+| `offscreen` | Chromium 系で BOOTH の HTML を解析 |
 | `https://booth.pm/*` | BOOTH 商品検索ページの取得 |
 | `https://discord.com/api/webhooks/*` | Discord Webhook への通知 |
 
-## Notes
+## データ保存
 
-Discord Webhook URL は機密情報に近い値のため、ブラウザ同期ストレージではなく端末ローカルの拡張ストレージに保存します。旧バージョンで同期ストレージに保存済みの設定は、起動または Options 表示時にローカルへ移行し、同期ストレージから削除します。
+- Discord Webhook URL はブラウザ同期ストレージではなく端末ローカルの拡張ストレージに保存します
+- 旧バージョンで同期ストレージに保存済みの設定は、起動時または設定画面表示時にローカルへ移行し、同期ストレージから削除します
+- 新着商品一覧と未読件数もローカルに保存します
 
-BOOTH の HTML 構造が変わると商品カードの解析が失敗する可能性があります。
+## 制限事項
 
-成人向け商品を通知するには、同じブラウザでBOOTHへログインし、BOOTH側の成人向け表示設定を有効にしてください。成人向け検索が0件だった場合、通常検索へフォールバックし、`Last Run.message` に警告を出します。
+- BOOTH の HTML 構造が変わると商品カードの解析に失敗する可能性があります
+- 成人向け商品の判定は、BOOTH の商品カード上に表示される文言をもとに行っています
+- Firefox の `Load Temporary Add-on...` は一時読み込みのため、ブラウザ再起動後は再読み込みが必要です
+
+## ライセンス
+
+このリポジトリは MIT License です。元リポジトリ [moyu1254/booth-new-product-discord-notifier.git](https://github.com/moyu1254/booth-new-product-discord-notifier.git) も MIT License です。
