@@ -4,13 +4,14 @@ if (typeof importScripts === "function") {
 }
 
 const ext = globalThis.browser || chrome;
-const RECENT_PRODUCTS_LIMIT = 100;
 const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
   discordWebhookUrl: "",
   includeAdult: false,
   notifyDiscord: true,
+  recentProductsLimit: 100,
+  searchPageLimit: 1,
   skipInitialExistingProducts: true
 };
 
@@ -67,6 +68,7 @@ async function runCheck({ reason } = {}) {
   const settings = await getSettings();
   const webhookUrl = settings.discordWebhookUrl.trim();
   const tags = normalizeTags(settings.boothTags);
+  const searchPageLimit = normalizeSearchPageLimit(settings.searchPageLimit);
   const { monitorInitialized = false } = await ext.storage.local.get("monitorInitialized");
   const shouldBootstrapOnly = settings.skipInitialExistingProducts && !monitorInitialized;
 
@@ -124,21 +126,38 @@ async function runCheck({ reason } = {}) {
       discordNotifiedCount: 0,
       discordFailedCount: 0,
       sourceUrl: "",
+      sourceUrls: [],
       fallbackFromUrl: "",
+      fallbackFromUrls: [],
       adultSearchFallback: false,
       adultSearchBlocked: false,
+      fetchedPageCount: 0,
+      searchPageLimit,
       bootstrappedCount: 0
     };
 
     try {
-      const { products, sourceUrl, fallbackFromUrl, adultSearchFallback, adultSearchBlocked } = await fetchProductsByTag(
+      const {
+        products,
+        sourceUrl,
+        sourceUrls,
+        fallbackFromUrl,
+        fallbackFromUrls,
+        adultSearchFallback,
+        adultSearchBlocked,
+        fetchedPageCount
+      } = await fetchProductsByTag(
         tag,
-        settings.includeAdult
+        settings.includeAdult,
+        searchPageLimit
       );
       tagResult.sourceUrl = sourceUrl;
+      tagResult.sourceUrls = sourceUrls;
       tagResult.fallbackFromUrl = fallbackFromUrl;
+      tagResult.fallbackFromUrls = fallbackFromUrls;
       tagResult.adultSearchFallback = adultSearchFallback;
       tagResult.adultSearchBlocked = adultSearchBlocked;
+      tagResult.fetchedPageCount = fetchedPageCount;
       tagResult.fetchedCount = products.length;
       summary.fetchedCount += products.length;
 
@@ -202,7 +221,7 @@ async function runCheck({ reason } = {}) {
   if (shouldBootstrapOnly) {
     await ext.storage.local.set({ monitorInitialized: true });
   }
-  await saveRecentProducts(newlySeenProducts);
+  await saveRecentProducts(newlySeenProducts, settings.recentProductsLimit);
   await updateBadge();
   await setLastRun({
     checkedAt: new Date().toISOString(),
@@ -233,7 +252,9 @@ async function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...(settings || {}),
-    boothTags: normalizeTags(settings?.boothTags)
+    boothTags: normalizeTags(settings?.boothTags),
+    recentProductsLimit: normalizeRecentProductsLimit(settings?.recentProductsLimit),
+    searchPageLimit: normalizeSearchPageLimit(settings?.searchPageLimit)
   };
 }
 
@@ -254,17 +275,18 @@ async function setLastRun(lastRun) {
   await ext.storage.local.set({ lastRun });
 }
 
-async function saveRecentProducts(products) {
+async function saveRecentProducts(products, limit) {
   if (products.length === 0) {
     return;
   }
 
+  const recentProductsLimit = normalizeRecentProductsLimit(limit);
   const { recentProducts = [], unreadCount = 0 } = await ext.storage.local.get([
     "recentProducts",
     "unreadCount"
   ]);
   const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))]
-    .slice(0, RECENT_PRODUCTS_LIMIT);
+    .slice(0, recentProductsLimit);
 
   await ext.storage.local.set({
     recentProducts: merged,
@@ -272,19 +294,55 @@ async function saveRecentProducts(products) {
   });
 }
 
-async function fetchProductsByTag(tag, includeAdult) {
-  const primaryResult = await fetchProductsByTagUrl(buildBoothSearchUrl(tag, includeAdult));
+async function fetchProductsByTag(tag, includeAdult, searchPageLimit) {
+  const primaryResult = await fetchProductsByTagPages(tag, includeAdult, searchPageLimit);
 
   if (!includeAdult || primaryResult.products.length > 0) {
     return { ...primaryResult, adultSearchFallback: false, adultSearchBlocked: false };
   }
 
-  const fallbackResult = await fetchProductsByTagUrl(buildBoothSearchUrl(tag, false));
+  const fallbackResult = await fetchProductsByTagPages(tag, false, searchPageLimit);
   return {
     ...fallbackResult,
     fallbackFromUrl: primaryResult.sourceUrl,
+    fallbackFromUrls: primaryResult.sourceUrls,
     adultSearchFallback: true,
     adultSearchBlocked: primaryResult.adultSearchBlocked
+  };
+}
+
+async function fetchProductsByTagPages(tag, includeAdult, searchPageLimit) {
+  const products = [];
+  const sourceUrls = [];
+  let adultSearchBlocked = false;
+  let fetchedPageCount = 0;
+
+  for (let page = 1; page <= searchPageLimit; page += 1) {
+    const pageResult = await fetchProductsByTagUrl(buildBoothSearchUrl(tag, includeAdult, page));
+    sourceUrls.push(pageResult.sourceUrl);
+    fetchedPageCount += 1;
+
+    if (pageResult.adultSearchBlocked) {
+      adultSearchBlocked = true;
+      break;
+    }
+
+    if (pageResult.products.length === 0) {
+      break;
+    }
+
+    products.push(...pageResult.products);
+    await sleep(700);
+  }
+
+  return {
+    products: uniqueProducts(products),
+    sourceUrl: sourceUrls[0] || "",
+    sourceUrls,
+    fallbackFromUrl: "",
+    fallbackFromUrls: [],
+    adultSearchBlocked,
+    fetchedPageCount
   };
 }
 
@@ -312,16 +370,28 @@ function isBoothAgeConfirmationPage(html) {
     html.includes("js-approve-adult");
 }
 
-function buildBoothSearchUrl(tag, includeAdult) {
+function buildBoothSearchUrl(tag, includeAdult, page = 1) {
   const params = new URLSearchParams();
   params.set("sort", "new");
   params.append("tags[]", tag);
+  params.set("page", String(page));
 
   if (includeAdult) {
     params.set("adult", "include");
   }
 
   return `https://booth.pm/ja/items?${params.toString()}`;
+}
+
+function uniqueProducts(products) {
+  const seenProductIds = new Set();
+  return products.filter((product) => {
+    if (seenProductIds.has(product.id)) {
+      return false;
+    }
+    seenProductIds.add(product.id);
+    return true;
+  });
 }
 
 async function sendDiscordNotification(webhookUrl, product, tag) {
@@ -425,6 +495,16 @@ function normalizeTags(tags) {
     .flatMap((tag) => String(tag).split(/[\n,、]/))
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function normalizeSearchPageLimit(value) {
+  const pageLimit = Number(value) || DEFAULT_SETTINGS.searchPageLimit;
+  return Math.min(5, Math.max(1, Math.floor(pageLimit)));
+}
+
+function normalizeRecentProductsLimit(value) {
+  const productsLimit = Number(value) || DEFAULT_SETTINGS.recentProductsLimit;
+  return Math.min(500, Math.max(20, Math.floor(productsLimit)));
 }
 
 function isDiscordWebhookUrl(url) {

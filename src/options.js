@@ -4,6 +4,8 @@ const DEFAULT_SETTINGS = {
   discordWebhookUrl: "",
   includeAdult: false,
   notifyDiscord: true,
+  recentProductsLimit: 100,
+  searchPageLimit: 1,
   skipInitialExistingProducts: true
 };
 const ext = globalThis.browser || chrome;
@@ -12,6 +14,8 @@ const form = document.querySelector("#settings-form");
 const webhookUrlInput = document.querySelector("#discord-webhook-url");
 const tagsInput = document.querySelector("#booth-tags");
 const intervalInput = document.querySelector("#check-interval-minutes");
+const searchPageLimitInput = document.querySelector("#search-page-limit");
+const recentProductsLimitInput = document.querySelector("#recent-products-limit");
 const includeAdultInput = document.querySelector("#include-adult");
 const skipInitialExistingProductsInput = document.querySelector("#skip-initial-existing-products");
 const notifyDiscordInput = document.querySelector("#notify-discord");
@@ -32,6 +36,8 @@ async function restoreOptions() {
   webhookUrlInput.value = currentSettings.discordWebhookUrl;
   tagsInput.value = normalizeTags(currentSettings.boothTags).join("\n");
   intervalInput.value = currentSettings.checkIntervalMinutes;
+  searchPageLimitInput.value = normalizeSearchPageLimit(currentSettings.searchPageLimit);
+  recentProductsLimitInput.value = normalizeRecentProductsLimit(currentSettings.recentProductsLimit);
   includeAdultInput.checked = currentSettings.includeAdult;
   skipInitialExistingProductsInput.checked = currentSettings.skipInitialExistingProducts;
   notifyDiscordInput.checked = currentSettings.notifyDiscord;
@@ -55,6 +61,8 @@ async function saveCurrentOptions() {
     discordWebhookUrl: webhookUrlInput.value.trim(),
     boothTags: normalizeTags(tagsInput.value.split("\n")),
     checkIntervalMinutes: Math.max(1, Number(intervalInput.value) || 30),
+    searchPageLimit: normalizeSearchPageLimit(searchPageLimitInput.value),
+    recentProductsLimit: normalizeRecentProductsLimit(recentProductsLimitInput.value),
     includeAdult: includeAdultInput.checked,
     skipInitialExistingProducts: skipInitialExistingProductsInput.checked,
     notifyDiscord: notifyDiscordInput.checked
@@ -65,6 +73,7 @@ async function saveCurrentOptions() {
   }
 
   await ext.storage.local.set({ settings });
+  await trimRecentProducts(settings.recentProductsLimit);
   await removeSyncedSettings();
   if (tagsChanged(previousTags, settings.boothTags)) {
     await ext.storage.local.set({ monitorInitialized: false });
@@ -150,6 +159,24 @@ async function resetSeenProducts() {
     unreadCount: 0
   });
   showStatus("通知済み履歴をリセットしました。");
+}
+
+function normalizeSearchPageLimit(value) {
+  const pageLimit = Number(value) || DEFAULT_SETTINGS.searchPageLimit;
+  return Math.min(5, Math.max(1, Math.floor(pageLimit)));
+}
+
+function normalizeRecentProductsLimit(value) {
+  const productsLimit = Number(value) || DEFAULT_SETTINGS.recentProductsLimit;
+  return Math.min(500, Math.max(20, Math.floor(productsLimit)));
+}
+
+async function trimRecentProducts(limit) {
+  const { recentProducts = [] } = await ext.storage.local.get("recentProducts");
+  if (!Array.isArray(recentProducts) || recentProducts.length <= limit) {
+    return;
+  }
+  await ext.storage.local.set({ recentProducts: recentProducts.slice(0, limit) });
 }
 
 function showStatus(message) {

@@ -27,6 +27,18 @@
           <input id="check-interval-minutes" type="number" min="1" step="1">
         </label>
 
+        <label>
+          検索ページ数
+          <input id="search-page-limit" type="number" min="1" max="5" step="1">
+          <span class="hint">1回のチェックで確認する BOOTH 検索結果ページ数です。1〜5 の範囲で指定できます。</span>
+        </label>
+
+        <label>
+          新着商品一覧の表示件数
+          <input id="recent-products-limit" type="number" min="20" max="500" step="10">
+          <span class="hint">ポップアップ内に保存・表示する商品数です。20〜500 件の範囲で指定できます。</span>
+        </label>
+
         <label class="checkbox">
           <input id="include-adult" type="checkbox">
           成人向け商品を検索結果に含める
