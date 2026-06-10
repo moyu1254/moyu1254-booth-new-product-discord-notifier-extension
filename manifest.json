@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BOOTH New Product Discord Notifier",
   "description": "指定した BOOTH タグの新着商品を拡張機能内一覧と Discord に通知します。",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "permissions": [
     "alarms",
     "offscreen",

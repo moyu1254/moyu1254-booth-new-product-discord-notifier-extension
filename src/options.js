@@ -150,6 +150,11 @@ async function runNow() {
   }
 
   if (response?.ok) {
+    if (response.alreadyRunning) {
+      showStatus("既に実行中です。完了後に最終実行結果が更新されます。");
+      return;
+    }
+
     showStatus("実行を開始しました。完了後に最終実行結果が更新されます。");
     return;
   }

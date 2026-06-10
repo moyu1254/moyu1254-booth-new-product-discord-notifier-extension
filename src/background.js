@@ -4,6 +4,7 @@ if (typeof importScripts === "function") {
 }
 
 const ext = globalThis.browser || chrome;
+let activeRun = null;
 const DEFAULT_SETTINGS = {
   boothTags: [],
   checkIntervalMinutes: 30,
@@ -17,17 +18,17 @@ const DEFAULT_SETTINGS = {
 
 ext.runtime.onInstalled.addListener(() => {
   scheduleChecks();
-  runCheck({ reason: "installed" });
+  startRunCheck({ reason: "installed" });
 });
 
 ext.runtime.onStartup.addListener(() => {
   scheduleChecks();
-  runCheck({ reason: "startup" });
+  startRunCheck({ reason: "startup" });
 });
 
 ext.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
-    runCheck({ reason: "alarm" });
+    startRunCheck({ reason: "alarm" });
   }
 });
 
@@ -43,10 +44,8 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  runCheck({ reason: "manual" }).catch((error) => {
-    console.error("手動実行に失敗しました。", error);
-  });
-  sendResponse({ ok: true, started: true });
+  const started = startRunCheck({ reason: "manual" });
+  sendResponse({ ok: true, started, alreadyRunning: !started });
 
   return false;
 });
@@ -63,6 +62,23 @@ async function scheduleChecks() {
 
   await ext.alarms.clear(ALARM_NAME);
   await ext.alarms.create(ALARM_NAME, { periodInMinutes });
+}
+
+function startRunCheck({ reason } = {}) {
+  if (activeRun) {
+    console.info(`BOOTH新着チェックは既に実行中のため、${reason || "unknown"} 実行をスキップしました。`);
+    return false;
+  }
+
+  activeRun = runCheck({ reason })
+    .catch((error) => {
+      console.error("BOOTH新着チェックに失敗しました。", error);
+    })
+    .finally(() => {
+      activeRun = null;
+    });
+
+  return true;
 }
 
 async function runCheck({ reason } = {}) {
