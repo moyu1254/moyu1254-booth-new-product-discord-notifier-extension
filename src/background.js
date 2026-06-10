@@ -1,4 +1,5 @@
 const ALARM_NAME = "booth-product-check";
+const MAX_PENDING_DISCORD_NOTIFICATIONS = 500;
 if (typeof importScripts === "function") {
   importScripts("product-parser.js");
 }
@@ -44,10 +45,17 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  const started = startRunCheck({ reason: "manual" });
-  sendResponse({ ok: true, started, alreadyRunning: !started });
+  const run = startRunCheck({ reason: "manual" });
+  if (!run) {
+    sendResponse({ ok: true, started: false, alreadyRunning: true });
+    return false;
+  }
 
-  return false;
+  run
+    .then((lastRun) => sendResponse({ ok: true, started: true, alreadyRunning: false, lastRun }))
+    .catch((error) => sendResponse({ ok: false, message: error.message }));
+
+  return true;
 });
 
 ext.storage.onChanged.addListener((changes, areaName) => {
@@ -67,18 +75,32 @@ async function scheduleChecks() {
 function startRunCheck({ reason } = {}) {
   if (activeRun) {
     console.info(`BOOTH新着チェックは既に実行中のため、${reason || "unknown"} 実行をスキップしました。`);
-    return false;
+    return null;
   }
 
-  activeRun = runCheck({ reason })
-    .catch((error) => {
-      console.error("BOOTH新着チェックに失敗しました。", error);
-    })
+  activeRun = runCheckSafely({ reason })
     .finally(() => {
       activeRun = null;
     });
 
-  return true;
+  return activeRun;
+}
+
+async function runCheckSafely({ reason } = {}) {
+  try {
+    return await runCheck({ reason });
+  } catch (error) {
+    console.error("BOOTH新着チェックに失敗しました。", error);
+    return finishRun({
+      checkedAt: new Date().toISOString(),
+      reason,
+      status: "error",
+      message: error.message || "BOOTH新着チェックに失敗しました。",
+      notifiedCount: 0,
+      summary: emptySummary(),
+      tags: []
+    });
+  }
 }
 
 async function runCheck({ reason } = {}) {
@@ -90,7 +112,7 @@ async function runCheck({ reason } = {}) {
   const shouldBootstrapOnly = settings.skipInitialExistingProducts && !monitorInitialized;
 
   if (tags.length === 0) {
-    await setLastRun({
+    return finishRun({
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
@@ -99,11 +121,10 @@ async function runCheck({ reason } = {}) {
       summary: emptySummary(),
       tags: []
     });
-    return;
   }
 
   if (settings.notifyDiscord && !webhookUrl) {
-    await setLastRun({
+    return finishRun({
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
@@ -112,11 +133,10 @@ async function runCheck({ reason } = {}) {
       summary: emptySummary(),
       tags: []
     });
-    return;
   }
 
   if (settings.notifyDiscord && !isDiscordWebhookUrl(webhookUrl)) {
-    await setLastRun({
+    return finishRun({
       checkedAt: new Date().toISOString(),
       reason,
       status: "skipped",
@@ -125,16 +145,42 @@ async function runCheck({ reason } = {}) {
       summary: emptySummary(),
       tags: []
     });
-    return;
   }
 
   const seenIds = await getSeenProductIds();
   let notifiedCount = 0;
   const errors = [];
-  const newlySeenProducts = [];
   const tagResults = [];
   const summary = emptySummary();
   let discordStopReason = "";
+
+  await finishRun({
+    checkedAt: new Date().toISOString(),
+    reason,
+    status: "running",
+    message: "BOOTH新着チェックを実行中です。",
+    notifiedCount: 0,
+    summary,
+    tags: []
+  });
+
+  if (settings.notifyDiscord) {
+    const retryResult = await retryPendingDiscordNotifications(webhookUrl);
+    if (retryResult.notifiedCount > 0) {
+      summary.discordNotifiedCount += retryResult.notifiedCount;
+      summary.pendingDiscordNotifiedCount += retryResult.notifiedCount;
+    }
+
+    if (retryResult.failedCount > 0) {
+      summary.discordFailedCount += retryResult.failedCount;
+      summary.pendingDiscordFailedCount += retryResult.failedCount;
+    }
+
+    if (retryResult.stopFurtherAttempts) {
+      discordStopReason = retryResult.message;
+      errors.push(`保留中のDiscord通知を停止しました: ${discordStopReason}`);
+    }
+  }
 
   for (const tag of tags) {
     const tagResult = {
@@ -189,44 +235,61 @@ async function runCheck({ reason } = {}) {
         summary.adultSearchBlockedCount += 1;
       }
 
+      const unseenProducts = products.filter((product) => !seenIds.includes(product.id));
+
       if (shouldBootstrapOnly) {
-        const unseenProducts = products.filter((product) => !seenIds.includes(product.id));
         for (const product of unseenProducts) {
           seenIds.push(product.id);
         }
         tagResult.bootstrappedCount = unseenProducts.length;
         summary.bootstrappedCount += unseenProducts.length;
-        await sleep(2000);
+        await ext.storage.local.set({ seenProductIds: unique(seenIds) });
         tagResults.push(tagResult);
+        await finishRun(buildRunningRun({ reason, summary, tagResults, notifiedCount, tags }));
         continue;
       }
 
-      for (const product of products) {
-        if (seenIds.includes(product.id)) {
-          continue;
-        }
-
+      for (const product of unseenProducts) {
         tagResult.newCount += 1;
         summary.newCount += 1;
 
-        const discordResult = settings.notifyDiscord && !discordStopReason
-          ? await sendDiscordNotification(webhookUrl, product, tag)
-          : { ok: false, skipped: Boolean(discordStopReason), message: discordStopReason };
+        seenIds.push(product.id);
+        notifiedCount += 1;
+      }
 
-        if (discordResult.ok) {
-          tagResult.discordNotifiedCount += 1;
-          summary.discordNotifiedCount += 1;
-        }
+      const newlySeenProducts = unseenProducts.map((product) => ({
+        ...product,
+        tag,
+        detectedAt: new Date().toISOString()
+      }));
+      const discordProducts = unseenProducts.map((product) => ({ ...product, tag }));
 
-        if (settings.notifyDiscord && discordResult.skipped) {
-          tagResult.discordSkippedCount += 1;
-          tagResult.discordStopReason = discordResult.message;
-          summary.discordSkippedCount += 1;
-        }
+      await ext.storage.local.set({ seenProductIds: unique(seenIds) });
+      await saveRecentProducts(newlySeenProducts, settings.recentProductsLimit);
+      await updateBadge();
 
-        if (settings.notifyDiscord && !discordResult.ok && !discordResult.skipped) {
-          tagResult.discordFailedCount += 1;
-          summary.discordFailedCount += 1;
+      if (settings.notifyDiscord && unseenProducts.length > 0) {
+        if (discordStopReason) {
+          tagResult.discordSkippedCount += unseenProducts.length;
+          tagResult.discordStopReason = discordStopReason;
+          summary.discordSkippedCount += unseenProducts.length;
+          summary.pendingDiscordQueuedCount += await enqueuePendingDiscordNotifications(
+            discordProducts,
+            discordStopReason
+          );
+        } else {
+          const discordResult = await sendDiscordNotifications(webhookUrl, discordProducts);
+          tagResult.discordNotifiedCount += discordResult.notifiedCount;
+          tagResult.discordFailedCount += discordResult.failedCount;
+          summary.discordNotifiedCount += discordResult.notifiedCount;
+          summary.discordFailedCount += discordResult.failedCount;
+
+          if (discordResult.failedProducts.length > 0) {
+            summary.pendingDiscordQueuedCount += await enqueuePendingDiscordNotifications(
+              discordResult.failedProducts,
+              discordResult.message
+            );
+          }
 
           if (discordResult.stopFurtherAttempts) {
             discordStopReason = discordResult.message;
@@ -234,28 +297,21 @@ async function runCheck({ reason } = {}) {
             errors.push(`Discord通知を停止しました: ${discordStopReason}`);
           }
         }
-
-        seenIds.push(product.id);
-        newlySeenProducts.push({ ...product, tag, detectedAt: new Date().toISOString() });
-        notifiedCount += 1;
-        await sleep(1000);
       }
-
-      await sleep(2000);
     } catch (error) {
       errors.push(`${tag}: ${error.message}`);
     }
 
     tagResults.push(tagResult);
+    await finishRun(buildRunningRun({ reason, summary, tagResults, notifiedCount, tags }));
   }
 
-  await ext.storage.local.set({ seenProductIds: unique(seenIds) });
   if (shouldBootstrapOnly) {
+    await ext.storage.local.set({ seenProductIds: unique(seenIds) });
     await ext.storage.local.set({ monitorInitialized: true });
   }
-  await saveRecentProducts(newlySeenProducts, settings.recentProductsLimit);
   await updateBadge();
-  await setLastRun({
+  return finishRun({
     checkedAt: new Date().toISOString(),
     reason,
     status:
@@ -307,6 +363,23 @@ async function setLastRun(lastRun) {
   await ext.storage.local.set({ lastRun });
 }
 
+async function finishRun(lastRun) {
+  await setLastRun(lastRun);
+  return lastRun;
+}
+
+function buildRunningRun({ reason, summary, tagResults, notifiedCount, tags }) {
+  return {
+    checkedAt: new Date().toISOString(),
+    reason,
+    status: "running",
+    message: `BOOTH新着チェックを実行中です。${tagResults.length}/${tags.length} タグを確認しました。`,
+    notifiedCount,
+    summary,
+    tags: tagResults
+  };
+}
+
 async function saveRecentProducts(products, limit) {
   if (products.length === 0) {
     return;
@@ -317,13 +390,120 @@ async function saveRecentProducts(products, limit) {
     "recentProducts",
     "unreadCount"
   ]);
-  const merged = [...products, ...recentProducts.filter((product) => !products.some((p) => p.id === product.id))]
+  const recentProductIds = new Set(recentProducts.map((product) => product.id));
+  const newProducts = products.filter((product) => !recentProductIds.has(product.id));
+  if (newProducts.length === 0) {
+    return;
+  }
+
+  const merged = [...newProducts, ...recentProducts.filter((product) => !newProducts.some((p) => p.id === product.id))]
     .slice(0, recentProductsLimit);
 
   await ext.storage.local.set({
     recentProducts: merged,
-    unreadCount: unreadCount + products.length
+    unreadCount: unreadCount + newProducts.length
   });
+}
+
+async function retryPendingDiscordNotifications(webhookUrl) {
+  const pendingNotifications = await getPendingDiscordNotifications();
+  if (pendingNotifications.length === 0) {
+    return {
+      notifiedCount: 0,
+      failedCount: 0,
+      message: "",
+      stopFurtherAttempts: false
+    };
+  }
+
+  const sortedNotifications = [...pendingNotifications].sort((a, b) =>
+    String(a.queuedAt || "").localeCompare(String(b.queuedAt || ""))
+  );
+  const result = await sendDiscordNotifications(webhookUrl, sortedNotifications);
+  const failedKeys = new Set(result.failedProducts.map(getDiscordNotificationKey));
+  const now = new Date().toISOString();
+  const remainingNotifications = sortedNotifications
+    .filter((notification) => failedKeys.has(getDiscordNotificationKey(notification)))
+    .map((notification) => ({
+      ...notification,
+      attempts: (Number(notification.attempts) || 0) + 1,
+      lastAttemptAt: now,
+      lastError: result.message || notification.lastError || ""
+    }));
+
+  await setPendingDiscordNotifications(remainingNotifications);
+
+  return {
+    notifiedCount: result.notifiedCount,
+    failedCount: remainingNotifications.length,
+    message: result.message,
+    stopFurtherAttempts: result.stopFurtherAttempts
+  };
+}
+
+async function enqueuePendingDiscordNotifications(products, message) {
+  if (products.length === 0) {
+    return 0;
+  }
+
+  const pendingNotifications = await getPendingDiscordNotifications();
+  const queuedAt = new Date().toISOString();
+  const normalizedProducts = products
+    .map((product) => normalizeDiscordNotification(product, { queuedAt, lastError: message }))
+    .filter(Boolean);
+  const normalizedKeys = new Set(normalizedProducts.map(getDiscordNotificationKey));
+  const mergedNotifications = [
+    ...pendingNotifications.filter((notification) => !normalizedKeys.has(getDiscordNotificationKey(notification))),
+    ...normalizedProducts
+  ];
+  const cappedNotifications = mergedNotifications.slice(-MAX_PENDING_DISCORD_NOTIFICATIONS);
+
+  await setPendingDiscordNotifications(cappedNotifications);
+  const cappedKeys = new Set(cappedNotifications.map(getDiscordNotificationKey));
+  return normalizedProducts.filter((product) => cappedKeys.has(getDiscordNotificationKey(product))).length;
+}
+
+async function getPendingDiscordNotifications() {
+  const { pendingDiscordNotifications = [] } = await ext.storage.local.get("pendingDiscordNotifications");
+  if (!Array.isArray(pendingDiscordNotifications)) {
+    return [];
+  }
+
+  return pendingDiscordNotifications
+    .map((notification) => normalizeDiscordNotification(notification))
+    .filter(Boolean);
+}
+
+async function setPendingDiscordNotifications(notifications) {
+  await ext.storage.local.set({
+    pendingDiscordNotifications: notifications.slice(-MAX_PENDING_DISCORD_NOTIFICATIONS)
+  });
+}
+
+function normalizeDiscordNotification(product, defaults = {}) {
+  const id = String(product?.id || "").trim();
+  const tag = String(product?.tag || "").trim();
+  if (!id || !tag) {
+    return null;
+  }
+
+  return {
+    id,
+    title: String(product.title || "無題の商品"),
+    url: String(product.url || `https://booth.pm/ja/items/${id}`),
+    price: String(product.price || "価格不明"),
+    imageUrl: String(product.imageUrl || ""),
+    isAdult: Boolean(product.isAdult),
+    tag,
+    queuedAt: String(product.queuedAt || defaults.queuedAt || new Date().toISOString()),
+    attempts: Number(product.attempts) || 0,
+    lastAttemptAt: String(product.lastAttemptAt || ""),
+    lastError: String(defaults.lastError || product.lastError || "")
+  };
+}
+
+function getDiscordNotificationKey(notification) {
+  return `${notification.tag}\n${notification.id}`;
 }
 
 async function fetchProductsByTag(tag, includeAdult, searchPageLimit) {
@@ -364,7 +544,6 @@ async function fetchProductsByTagPages(tag, includeAdult, searchPageLimit) {
     }
 
     products.push(...pageResult.products);
-    await sleep(700);
   }
 
   return {
@@ -426,14 +605,69 @@ function uniqueProducts(products) {
   });
 }
 
-async function sendDiscordNotification(webhookUrl, product, tag) {
+async function sendDiscordNotifications(webhookUrl, products) {
+  let notifiedCount = 0;
+  let failedCount = 0;
+  const failedProducts = [];
+  let message = "";
+  let stopFurtherAttempts = false;
+
+  for (let index = 0; index < products.length; index += 10) {
+    const chunk = products.slice(index, index + 10);
+    let result = await sendDiscordWebhook(
+      webhookUrl,
+      chunk.map(buildDiscordEmbed),
+      chunk.length
+    );
+
+    if (result.status === 429 && result.retryAfterMs > 0 && result.retryAfterMs <= 5000) {
+      await sleep(result.retryAfterMs);
+      result = await sendDiscordWebhook(
+        webhookUrl,
+        chunk.map(buildDiscordEmbed),
+        chunk.length
+      );
+    }
+
+    if (result.ok) {
+      notifiedCount += chunk.length;
+      continue;
+    }
+
+    failedCount += chunk.length;
+    message = result.message;
+
+    if (shouldStopDiscordAttemptsAfterFailure(result)) {
+      stopFurtherAttempts = true;
+      failedProducts.push(...products.slice(index));
+      break;
+    }
+
+    failedProducts.push(...chunk);
+  }
+
+  if (stopFurtherAttempts) {
+    failedCount = failedProducts.length;
+  }
+
+  return { notifiedCount, failedCount, failedProducts, message, stopFurtherAttempts };
+}
+
+function shouldStopDiscordAttemptsAfterFailure(result) {
+  return result.stopFurtherAttempts ||
+    result.status === 429 ||
+    result.status >= 500 ||
+    !result.status;
+}
+
+function buildDiscordEmbed(product) {
   const embed = {
     title: `${product.isAdult ? "[成人向け] " : ""}${product.title}`.slice(0, 256),
     url: product.url,
     color: product.isAdult ? 0xd63b3b : 0xff6fae,
     fields: [
       { name: "価格", value: product.price.slice(0, 1024), inline: true },
-      { name: "タグ", value: tag.slice(0, 1024), inline: true },
+      { name: "タグ", value: String(product.tag || "").slice(0, 1024), inline: true },
       { name: "区分", value: product.isAdult ? "成人向け" : "一般向け", inline: true }
     ],
     footer: { text: "BOOTH新着監視" }
@@ -443,13 +677,17 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
     embed.thumbnail = { url: product.imageUrl };
   }
 
+  return embed;
+}
+
+async function sendDiscordWebhook(webhookUrl, embeds, productCount) {
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         username: "BOOTH通知Bot",
-        embeds: [embed]
+        embeds
       })
     });
 
@@ -457,11 +695,16 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
       return { ok: true };
     }
 
-    const message = `Discord Webhook が ${response.status} を返しました。Webhook URL、削除状態、チャンネル権限を確認してください。`;
+    const retryAfterMs = await getDiscordRetryAfterMs(response);
+    const message = response.status === 429
+      ? "Discord Webhook がレート制限を返しました。少し時間を置いて再実行してください。"
+      : `Discord Webhook が ${response.status} を返しました。Webhook URL、削除状態、チャンネル権限を確認してください。`;
     return {
       ok: false,
       message,
       status: response.status,
+      productCount,
+      retryAfterMs,
       stopFurtherAttempts: [401, 403, 404].includes(response.status)
     };
   } catch (error) {
@@ -470,6 +713,25 @@ async function sendDiscordNotification(webhookUrl, product, tag) {
       message: error.message || "Discord通知に失敗しました。",
       stopFurtherAttempts: false
     };
+  }
+}
+
+async function getDiscordRetryAfterMs(response) {
+  if (response.status !== 429) {
+    return 0;
+  }
+
+  const retryAfterHeader = Number(response.headers.get("Retry-After"));
+  if (Number.isFinite(retryAfterHeader) && retryAfterHeader > 0) {
+    return Math.ceil(retryAfterHeader * 1000);
+  }
+
+  try {
+    const body = await response.clone().json();
+    const retryAfter = Number(body.retry_after);
+    return Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter * 1000) : 0;
+  } catch (error) {
+    return 0;
   }
 }
 
@@ -577,7 +839,10 @@ function emptySummary() {
     discordSkippedCount: 0,
     adultSearchFallbackCount: 0,
     adultSearchBlockedCount: 0,
-    bootstrappedCount: 0
+    bootstrappedCount: 0,
+    pendingDiscordNotifiedCount: 0,
+    pendingDiscordFailedCount: 0,
+    pendingDiscordQueuedCount: 0
   };
 }
 
@@ -609,6 +874,14 @@ function buildRunMessage(errors, summary) {
 
   if (summary.discordSkippedCount > 0) {
     messages.push(`Discord通知 ${summary.discordSkippedCount} 件をスキップしました。`);
+  }
+
+  if (summary.pendingDiscordNotifiedCount > 0) {
+    messages.push(`保留中のDiscord通知 ${summary.pendingDiscordNotifiedCount} 件を再送しました。`);
+  }
+
+  if (summary.pendingDiscordQueuedCount > 0) {
+    messages.push(`Discord通知に失敗した ${summary.pendingDiscordQueuedCount} 件を次回再送します。`);
   }
 
   return messages.join("\n");
