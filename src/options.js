@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   searchPageLimit: 1,
   skipInitialExistingProducts: true
 };
+const STALE_RUNNING_AFTER_MS = 30 * 60 * 1000;
 const ext = globalThis.browser || chrome;
 
 const form = document.querySelector("#settings-form");
@@ -23,6 +24,7 @@ const runNowButton = document.querySelector("#run-now");
 const resetSeenButton = document.querySelector("#reset-seen");
 const statusOutput = document.querySelector("#status");
 const lastRunOutput = document.querySelector("#last-run");
+let statusTimer = null;
 
 document.addEventListener("DOMContentLoaded", restoreOptions);
 form.addEventListener("submit", saveOptions);
@@ -31,7 +33,8 @@ resetSeenButton.addEventListener("click", resetSeenProducts);
 
 async function restoreOptions() {
   const currentSettings = await getSettings();
-  const { lastRun } = await ext.storage.local.get("lastRun");
+  const { lastRun: storedLastRun } = await ext.storage.local.get("lastRun");
+  const lastRun = await normalizeStoredLastRun(storedLastRun);
 
   webhookUrlInput.value = currentSettings.discordWebhookUrl;
   tagsInput.value = normalizeTags(currentSettings.boothTags).join("\n");
@@ -143,10 +146,14 @@ async function runNow() {
 
   let response;
   try {
+    runNowButton.disabled = true;
+    showStatus("実行中です。完了までこの画面を開いたままお待ちください。", { persist: true });
     response = await ext.runtime.sendMessage({ type: "RUN_CHECK_NOW" });
   } catch (error) {
     showStatus(error.message || "実行の開始に失敗しました。");
     return;
+  } finally {
+    runNowButton.disabled = false;
   }
 
   if (response?.ok) {
@@ -155,7 +162,14 @@ async function runNow() {
       return;
     }
 
-    showStatus("実行を開始しました。完了後に最終実行結果が更新されます。");
+    if (response.lastRun) {
+      lastRunOutput.textContent = JSON.stringify(response.lastRun, null, 2);
+    } else {
+      const { lastRun: storedLastRun } = await ext.storage.local.get("lastRun");
+      const lastRun = await normalizeStoredLastRun(storedLastRun);
+      lastRunOutput.textContent = lastRun ? JSON.stringify(lastRun, null, 2) : "まだ実行されていません。";
+    }
+    showStatus("実行が完了しました。");
     return;
   }
 
@@ -183,16 +197,68 @@ function normalizeRecentProductsLimit(value) {
 }
 
 async function trimRecentProducts(limit) {
+  const recentProductsLimit = normalizeRecentProductsLimit(limit);
   const { recentProducts = [] } = await ext.storage.local.get("recentProducts");
-  if (!Array.isArray(recentProducts) || recentProducts.length <= limit) {
+  if (!Array.isArray(recentProducts) || recentProducts.length <= recentProductsLimit) {
     return;
   }
-  await ext.storage.local.set({ recentProducts: recentProducts.slice(0, limit) });
+  await ext.storage.local.set({ recentProducts: recentProducts.slice(0, recentProductsLimit) });
 }
 
-function showStatus(message) {
+async function normalizeStoredLastRun(lastRun) {
+  const normalizedLastRun = normalizeLastRun(lastRun);
+  if (normalizedLastRun !== lastRun) {
+    await ext.storage.local.set({ lastRun: normalizedLastRun });
+  }
+  return normalizedLastRun;
+}
+
+function normalizeLastRun(lastRun) {
+  if (!isStaleRunningRun(lastRun)) {
+    return lastRun;
+  }
+
+  return {
+    ...lastRun,
+    status: "error",
+    interrupted: true,
+    interruptedAt: new Date().toISOString(),
+    message: appendRunMessage(
+      lastRun.message,
+      "前回の実行は完了前に中断された可能性があります。再実行してください。"
+    )
+  };
+}
+
+function isStaleRunningRun(lastRun) {
+  if (lastRun?.status !== "running") {
+    return false;
+  }
+
+  const checkedAt = Date.parse(lastRun.checkedAt);
+  return !Number.isFinite(checkedAt) || Date.now() - checkedAt > STALE_RUNNING_AFTER_MS;
+}
+
+function appendRunMessage(currentMessage, nextMessage) {
+  return [currentMessage, nextMessage]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function showStatus(message, { persist = false } = {}) {
+  if (statusTimer) {
+    clearTimeout(statusTimer);
+    statusTimer = null;
+  }
+
   statusOutput.textContent = message;
-  setTimeout(() => {
+
+  if (persist) {
+    return;
+  }
+
+  statusTimer = setTimeout(() => {
     statusOutput.textContent = "";
+    statusTimer = null;
   }, 3000);
 }
